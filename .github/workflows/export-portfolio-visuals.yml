@@ -1,0 +1,27 @@
+name: Export portfolio visual evidence
+
+on:
+  push:
+    branches: [visual-export]
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect authentic project visuals
+        run: |
+          mkdir -p export/codex-review
+          cp docs/assets/audit-report-preview.jpg export/codex-review/
+          cp docs/assets/audit-report-anatomy.jpg export/codex-review/
+          cp docs/assets/audit-report-preview.svg export/codex-review/
+          cp docs/assets/audit-report-anatomy.svg export/codex-review/
+          cp examples/sample-audit-report.html export/codex-review/
+          cp README.md export/codex-review/PROVENANCE.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-review-authentic-visuals
+          path: export/codex-review
+          if-no-files-found: error
+          retention-days: 1
