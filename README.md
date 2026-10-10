@@ -87,6 +87,12 @@ or changed repository is an explicit failure/not-verified result. Logs and attem
 metadata remain available at the reported diagnostic path. A successful launch
 or local self-test is never reported as a completed audit.
 
+Installed and signed-in CLIs still need permission to run from the host. If its
+sandbox blocks the installed script, account files, or network access, approve
+the specific runner launch using the host's normal permission mechanism. The
+independent reviewer keeps its restricted settings. A denied launch is reported
+as blocked; the skill does not claim that a reviewer ran.
+
 Rubrics receive PASS/FAIL/UNVERIFIABLE results with exact item coverage. Strict
 mode requires a rubric and human sign-off after findings. Auth, billing,
 destructive data, secrets, and regulatory changes retain a human-review floor.

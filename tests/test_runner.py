@@ -179,6 +179,16 @@ class TransportTests(unittest.TestCase):
         time.sleep(2.2)
         self.assertFalse(Path(self.env["MOCK_CHILD_MARKER"]).exists(), "Timed-out child escaped cancellation")
 
+    @unittest.skipUnless(os.name == "nt", "Windows process-tree permissions")
+    def test_windows_cleanup_denial_is_visible_and_parent_is_stopped(self):
+        denied = subprocess.CompletedProcess(["taskkill"], 1, b"", b"Access is denied")
+        with patch.object(runner.subprocess, "run", return_value=denied):
+            with self.assertRaises(runner.ReviewError) as caught:
+                runner.execute([sys.executable, "-c", "import time; time.sleep(10)"], self.directory, 0.2)
+        self.assertEqual(caught.exception.status, "launch_failure")
+        self.assertIn("Access is denied", str(caught.exception))
+        self.assertIn("Parent stopped; descendants may remain", str(caught.exception))
+
     def test_degraded_content_is_nonzero_and_never_approved(self):
         sample = copy.deepcopy(GOOD)
         sample["review_quality"] = "degraded_content"

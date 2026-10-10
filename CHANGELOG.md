@@ -12,6 +12,16 @@
   earlier Claude skill name. Python 3.11+ replaces multiple shell dependencies.
 - Short host-native skill instructions, corrected Claude frontmatter, failure
   regressions, and Windows/Linux/macOS CI.
+- Full audit checks in both directions: a seeded boundary defect was reported;
+  a correct change was approved, with unchanged Git snapshots. Fresh Claude
+  slash-command sessions actually invoked Codex; Codex invoked Claude through
+  the host's supported approval mechanism.
+- Impact-based severity guidance and independent builder severity assessment.
+- Specific host-launch approval guidance for sandbox account/network/file access.
+  Denied Windows process-tree cancellation now reports failure and possible
+  remaining descendants, rather than falsely claiming successful termination.
+- 31 behavioral checks, including the Windows cancellation-denial regression;
+  explicit `not_checked` mutation status for failures before snapshot setup.
 
 Compatibility changes: structured JSON replaces the Claude-hosted Markdown verdict
 contract. Old full-access/inherit sandbox switches and approval aliases are no

@@ -46,6 +46,10 @@ The supported transport is [references/runner.md](references/runner.md).
    are unnecessary. A denied optional listing does not prove the Python runner
    is denied. Attempt the required, authorized runner command and report its
    actual outcome; respect any denial of that required operation.
+   If the host sandbox blocks installed-script access or the reviewer's normal
+   account/network access, use the host's supported approval mechanism for the
+   specific authorized runner launch, keeping reviewer isolation intact. If
+   approval is denied or unavailable, report blocked with the actual error.
 2. For `selftest`, run the documented installed command and stop after reporting
    checks. Offline success is setup evidence, not proof that a reviewer ran.
    Report `ready_for_audit` only after the live probe actually passes.
@@ -90,14 +94,16 @@ The supported transport is [references/runner.md](references/runner.md).
     is failed or not verified; show its diagnostic and saved log directory.
     Do not conceal errors or silently switch to self-review. Retry only after
     diagnosing the cause, once for a transient failure; preserve the first attempt.
-    Never widen permissions or cycle models for auth, quota, network, sandbox,
+    Never widen reviewer permissions or cycle models for auth, quota, network, sandbox,
     configuration, timeout, or malformed output.
 
 ## Assess findings and report
 
 Read the full structured review. For every material finding independently record
 `accept`, `reject`, `re-scope`, `defer`, or `needs verification`, with reasoning
-and evidence. Check CLI/API/package claims empirically or against authentic
+and evidence. Verify the claimed impact and severity separately from whether
+the defect exists; correct unsupported severity in the builder assessment.
+Check CLI/API/package claims empirically or against authentic
 documentation; reproduce behavior where practical. A user objection triggers a
 fresh assessment, not automatic agreement or reversal. Distinguish verified
 facts, inference, uncertainty, and author choices. Reject unsupported criticism.

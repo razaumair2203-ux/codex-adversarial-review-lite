@@ -54,9 +54,16 @@ def read_json(path):
 
 
 def stop_process(process):
+    tree_error = None
     if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        try:
+            stopped = subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                     capture_output=True, timeout=15)
+            if stopped.returncode:
+                tree_error = "Process-tree cancellation could not be verified: " + safe_text(
+                    stopped.stderr.decode("utf-8", "replace") or stopped.stdout.decode("utf-8", "replace"))
+        except (OSError, subprocess.SubprocessError) as error:
+            tree_error = "Process-tree cancellation failed: " + safe_text(error)
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -65,6 +72,8 @@ def stop_process(process):
     if process.poll() is None:
         process.kill()
     process.wait(timeout=15)
+    if tree_error:
+        raise ReviewError("launch_failure", tree_error + ". Parent stopped; descendants may remain. Inspect local processes before retrying.")
 
 
 def execute(command, cwd, timeout, stdin=None, stdout=None, stderr=None, heartbeat=0):
@@ -352,7 +361,8 @@ def run_review(args, emit=True):
     started = time.monotonic()
     envelope = dict(protocol_version=PROTOCOL_VERSION, result="running", verdict=None, review_quality="unknown",
                     review=None, errors=None, session_id=None, reviewer_model=None, model_source=None,
-                    backend=args.backend, attempts=[], diagnostics_dir=None, mutation_check="not_requested")
+                    backend=args.backend, attempts=[], diagnostics_dir=None,
+                    mutation_check="not_checked" if args.repo else "not_requested")
     work = None
     code = 3
     before = None

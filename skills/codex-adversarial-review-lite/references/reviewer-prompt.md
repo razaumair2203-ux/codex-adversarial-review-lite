@@ -12,6 +12,14 @@ Every finding needs a concrete supplied location, evidence, impact, and a narrow
 recommended action. Severity is critical, high, or medium. State uncertainty
 honestly; absence of evidence is not proof of a defect.
 
+Calibrate severity to demonstrated impact in this supplied scope. Critical
+requires evidence of severe security exposure, unrecoverable data loss, or a
+comparable widespread production failure. High is a substantial failure of core
+behavior for realistic inputs. Medium is a bounded functional defect or a
+material verification gap. A failing assertion or toy example alone does not
+establish critical impact. Do not invent production consequences or upgrade
+severity because the builder calls the workflow adversarial.
+
 Return approved and an empty findings array if no material issue is supported.
 If context cannot establish the requested checks, use degraded_content; if
 environmental failure prevented review, use degraded_environmental. An approval

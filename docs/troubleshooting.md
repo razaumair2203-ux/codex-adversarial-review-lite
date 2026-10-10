@@ -10,11 +10,14 @@ Record the result and diagnostic directory, not only the last chat message.
 | Reviewer missing despite installation | Reopen the host after PATH changes. Set `CODEX_REVIEW_CLI` to the absolute native executable or npm shim. Invalid overrides fail visibly. |
 | Windows npm shim launch fails | Ensure Node and the npm package are present beside the shim, or point the override to a native executable. The runner avoids shell quoting. |
 | Authentication fails in an agent sandbox | Run the auth-status command under your normal account. Host sandbox credentials/permissions can differ. Use the host's supported approval mechanism for the specific launch. |
+| Installed runner cannot be read or executed | Inspect the actual host denial; request supported approval for that specific runner command. Do not disable the reviewer's restrictions. If approval is unavailable in unattended mode, report blocked. |
+| Claude says Unknown skill in an automated session | Keep the user settings source enabled for the host: excluding it with `--setting-sources ""` also hid installed user skills in the tested CLI. The isolated reviewer deliberately disables skills. |
 | Model is not supported for this account | Explicit models are not silently replaced. Use an available model/provider alias or `reviewer:cli-default`. Compare terminal/IDE CLI versions; their catalogs can differ. |
 | CLI lacks required flags | Update the reviewer CLI using its official instructions. A newer documentation page does not prove your installed CLI supports a flag. |
 | Auth/quota/network/config error | Fix that error; changing models or disabling sandboxing is not a general solution. Terminal JSONL provider errors take precedence over noisy startup warnings. |
 | Review appears to vanish | Read the result JSON and logs. `running` means pending or interrupted, never approved. The host agent must resume a yielded process/session. |
 | Timeout/cancellation | Runner stops the process tree and reports nonzero. Diagnose before one deliberate retry; do not loop full-bundle calls. |
+| Process-tree cancellation denied | The result reports failure and warns descendants may remain. Inspect local processes before retrying; do not interpret a stopped parent as proof the entire tree stopped. |
 | Local check passes, remote review fails | Expected distinction: offline checks do not verify model access. Inspect `live-probe` diagnostics. |
 | Missing/malformed/contradictory output | Treat as invalid/not verified. The parser rejects stale output, outer CLI error envelopes, invalid evidence/severity, and contradictory verdicts. |
 | Rubric partly skipped or all UNVERIFIABLE | Review is not verified. Improve evidence or clarify the checklist; do not treat a guessed PASS as evidence. |

@@ -12,8 +12,9 @@ terminal Codex CLI 0.144.1. The IDE bundles a different, newer Codex CLI.
 
 ## After repair
 
-- 30/30 behavioral tests passed locally in each repository. The six-job GitHub
-  matrix also passed on Windows/Linux/macOS with Python 3.11 and 3.13. A path
+- 31/31 behavioral tests passed locally in each repository under the normal
+  reviewer account. The six-job GitHub matrix covers Windows/Linux/macOS with
+  Python 3.11 and 3.13 (the cancellation-denial test is Windows-only). A path
   spelling assertion was corrected to compare file identity on macOS symlinked
   temp roots and Windows short-path aliases; the runner already resolved them.
 - Shared behavioral regression suite covers both providers: launch failure,
@@ -49,6 +50,54 @@ reviews now use that default without changing account-wide preferences;
 `reviewer:configured` selects a configured model explicitly. Custom providers
 retain their endpoint and configured model. Terminal provider error events take
 precedence over unrelated startup/websocket/cache warnings.
+
+## Full installed audit controls before publication
+
+Each isolated Git fixture began with `not (value > limit)`. The acceptance
+contract requires an inclusive integer comparison. One working-tree change
+used `<`, producing a reproducible failing equality test; the other used `<=`,
+passing all three below/equal/above tests. Neither prompt dictated a verdict.
+
+| Actual host / reviewer | Defective change | Correct change |
+|---|---|---|
+| Fresh Claude Code `/codex-adversarial-review-lite audit limit.py` / Codex | revise; one equality-boundary finding at limit.py:3 | approved; no findings |
+| Current Codex session, installed skill and supported specific-launch approval / Claude | revise; one equality-boundary finding at limit.py:3 | approved; no findings |
+
+All four results were `success`, quality `valid`, with exit-zero reviewer
+attempts, recorded session identifiers, and unchanged repository snapshots.
+Fresh Claude traces confirm actual Bash execution of the installed runner,
+not merely a successful host exit or a claimed review. Fixture hashes and Git
+state also remained unchanged through those host sessions. After the final
+cancellation diagnostic fix, both installed helpers completed another real
+correct-change audit with valid approval and unchanged snapshots.
+
+The initial Claude result overstated the toy defect as critical. The builder
+accepted the reproduced boundary defect and rejected the unsupported critical
+impact. Both prompts now define impact-based severity; the repeated Claude
+result reported high, without inventing production consequences. Severity
+still requires independent builder assessment.
+
+Both final installed runners also received a deliberately missing CLI path and
+a stale approval file. They exited 2, persisted `setup_needed` with no verdict,
+replaced the stale record, printed diagnostics, and retained logs. Setup did
+not reach the requested snapshot, accurately reported as `not_checked`.
+
+Restricted headless host controls produced visible blocking reports and no
+review result. Claude's narrow Bash allowlist denied Git commands containing
+`cd`; removing its user settings source hid the installed slash command. The
+successful fresh sessions retained normal user skill discovery, explicitly
+permitted the fixture's required host tools, and had no permission denials.
+Codex's unattended Windows sandbox denied installed-script access. The current
+Codex session succeeded through supported approval for the specific launch;
+neither direction weakened the independent reviewer's settings.
+
+A restricted Windows cancellation control denied `taskkill`: the earlier runner
+mistakenly claimed the process tree stopped. The fix preserves a nonzero failure
+and explicitly reports that descendants may remain. The same real restricted
+control now produces `launch_failure`, no verdict, and an Access denied
+diagnostic. Normal-account tree cancellation and the denial regression both
+pass. These checks do not establish unattended readiness in a host that cannot
+grant the required file, account, or network access.
 
 ## Limits
 

@@ -63,7 +63,9 @@ boundary. Use an externally isolated environment for stronger confidentiality.
 The requested result file is atomically replaced with `running` before any CLI
 probe. Heartbeat every 15 seconds. Default review deadline 600 seconds per attempt;
 version/help/auth probes have 20-second deadlines. Timeout/interruption stops the
-process tree. Change limits with `--timeout`, `--heartbeat`, `--max-turns`, and
+process tree when OS permissions allow it. A denied/failed Windows termination
+is an explicit failure: the parent is stopped, but descendants may remain;
+inspect local processes before retrying. Change limits with `--timeout`, `--heartbeat`, `--max-turns`, and
 `--max-budget-usd`. Codex has no equivalent dollar ceiling; timeout bounds duration,
 not spend. Use your account's usage limits as needed.
 
@@ -104,7 +106,9 @@ all-unverified approval yield `not_verified`. With no rubric, the output array
 is empty. The builder still checks whether evidence substantiates each result.
 
 `--repo` automatically compares HEAD, Git status, working/staged binary diff,
-and nonignored untracked bytes before/after, including on dispatch failure.
+and nonignored untracked bytes before/after, including on failure after the
+snapshot was taken. Setup failures before that point report `not_checked`,
+rather than claiming a requested snapshot was completed or never requested.
 `--scope PATH` additionally hashes each reviewed context/source path. An unborn
 Git repository is allowed. Symlink targets outside the repo are rejected. No
 volatile exclusions are silently inferred. Concurrent builds can trigger a real
