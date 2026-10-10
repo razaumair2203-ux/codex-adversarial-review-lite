@@ -1,341 +1,118 @@
-﻿# Codex Adversarial Review - Lite Codex Runner
+# Executable review contract (protocol 2)
 
-This runner is intentionally backend-specific. Codex Adversarial Review - Lite v1 is packaged for Claude Code as builder and Codex CLI as reviewer; the generic `builder` and `reviewer` terms are kept only so future versions can stay portable.
+This installed skill is self-contained. `scripts/review_runner.py` uses Python
+3.11+ and its standard library. No agent-generated transport, jq, GNU timeout,
+bwrap preflight, or subagent is required. The two sibling skills intentionally
+ship matching transport/schema/prompt files; keep protocol fixes mirrored.
 
-The main skill dispatches this runner in a short-lived subagent. The runner launches one Codex CLI review, validates the result, classifies review quality, and writes a JSON summary. It does not apply fixes.
-
-## Input Contract
-
-```yaml
-REVIEW_ID: <string>
-REPO_ROOT: <absolute path>
-OPERATION: initial
-REVIEW_BACKEND: codex
-REVIEWER_MODEL: <e.g. gpt-5.5>
-REVIEWER_REASONING: low | medium | high | xhigh
-REVIEWER_SANDBOX: read-only | workspace-write | danger-full-access | inherit
-REVIEWER_APPROVAL_POLICY: never
-TMP_ROOT: <temp directory outside repo>
-PROMPT_BODY_PATH: <absolute path>
-RESULT_PATH: ${TMP_ROOT}/advreview-result-<REVIEW_ID>.json
-DIRTY_FILE_LIST_PATH: ${TMP_ROOT}/advreview-dirty-files-<REVIEW_ID>.txt
-RUBRIC_PRESENT: true | false
-```
-
-`RUBRIC_PRESENT` is optional; treat a missing value as `false`. When `true`, the prompt body already contains the rubric and the review must contain a `# Rubric Results` section (see R6).
-
-If `REVIEW_BACKEND` is not `codex`, write an `input_error` result.
-
-## Output Contract
-
-Write this JSON to `RESULT_PATH`:
-
-```json
-{
-  "result": "success",
-  "verdict": "APPROVED",
-  "review_file": "${TMP_ROOT}/advreview-review-<REVIEW_ID>.md",
-  "reviewer_session_id": null,
-  "errors": null,
-  "review_quality": "valid",
-  "triage": {
-    "finding_count": 0,
-    "max_severity": "none",
-    "needs_builder_judgment": false,
-    "rubric_present": false,
-    "rubric_fail_count": 0
-  }
-}
-```
-
-`rubric_present` mirrors the `RUBRIC_PRESENT` input. `rubric_fail_count` is the number of `- [FAIL]` lines in the review; always `0` when no rubric was passed.
-
-Allowed values:
-
-- `result`: `success`, `launch_failure`, `timeout`, `infra_error`, `input_error`
-- `verdict`: `APPROVED`, `REVISE`, or `null`
-- `review_quality`: `valid`, `degraded_environmental`, `degraded_content`, `unknown`
-
-Final response to main must be exactly:
+Resolve `<skill>` to the absolute directory of the SKILL.md you just read.
+`python` on Windows, `python3` on macOS/Linux, or `py -3.11` when appropriate:
 
 ```text
-RUNNER_RESULT_AT: <RESULT_PATH>
+python "<skill>/scripts/review_runner.py" prepare
+python "<skill>/scripts/review_runner.py" selftest --backend codex
+python "<skill>/scripts/review_runner.py" selftest --backend codex --live-probe
+python "<skill>/scripts/review_runner.py" run --backend codex --bundle "<bundle.md>" --result "<result.json>" --repo "<git-root>" --scope "<relative-file>"
 ```
 
-## Step R1: Validate Inputs
-
-Required values:
-
-- `REVIEW_ID`
-- `REPO_ROOT`
-- `OPERATION`
-- `REVIEW_BACKEND`
-- `REVIEWER_MODEL`
-- `REVIEWER_REASONING`
-- `REVIEWER_SANDBOX`
-- `TMP_ROOT`
-- `PROMPT_BODY_PATH`
-- `RESULT_PATH`
-
-Validate:
-
-- `REVIEW_BACKEND=codex`
-- `OPERATION=initial`
-- `REVIEW_ID` matches `^[0-9]+-[0-9]{8}$`
-- `PROMPT_BODY_PATH` exists and is non-empty
-- `REPO_ROOT` exists
-- `TMP_ROOT` exists or can be created
-- `DIRTY_FILE_LIST_PATH`, when present, is outside the repo and readable
-- `codex` exists on `PATH`
-- `timeout` exists on `PATH`
-- `grep` exists on `PATH`
-- `tail` exists on `PATH`
-- `cat` exists on `PATH`
-- `sort` exists on `PATH` when the main skill passes sorted dirty-file lists through this runner environment
-
-If validation fails, write `input_error` with a clear message naming the missing dependency or invalid input. Do not attempt to launch Codex.
-
-## Step R2: Build Prompt File
-
-Generate a fresh 6-digit attempt id.
-
-Write:
-
-```text
-${TMP_ROOT}/advreview-prompt-${REVIEW_ID}.md
-```
-
-First line:
-
-```text
-<!-- ADVREVIEW-LITE-SESSION: ${REVIEW_ID}-${ATTEMPT_ID} -->
-```
-
-Then append the prompt body from `PROMPT_BODY_PATH`.
-
-If `DIRTY_FILE_LIST_PATH` exists and is non-empty, append this warning block to the prompt:
-
-```text
-The following tracked files were already dirty before review dispatch.
-Do not edit, format, or otherwise mutate these files.
-If you believe one of them must be inspected, inspect read-only and report findings only.
-
-<dirty file list>
-```
-
-## Step R3: Sandbox Preflight
-
-Run only when:
-
-- `OPERATION=initial`;
-- `REVIEWER_SANDBOX` is `read-only` or `workspace-write`.
-
-Probe:
-
-```bash
-bwrap --dev-bind / / --unshare-net /bin/echo ok 2>&1
-```
-
-If it fails, write:
-
-```json
-{
-  "result": "success",
-  "verdict": "REVISE",
-  "review_file": "${TMP_ROOT}/advreview-stderr-<REVIEW_ID>.txt",
-  "reviewer_session_id": null,
-  "errors": "Sandbox preflight failed; bwrap is unavailable or unusable.",
-  "review_quality": "degraded_environmental",
-  "triage": {
-    "finding_count": 0,
-    "max_severity": "none",
-    "needs_builder_judgment": false,
-    "rubric_present": false,
-    "rubric_fail_count": 0
-  }
-}
-```
-
-(Set `rubric_present` to the actual `RUBRIC_PRESENT` input; `rubric_fail_count` stays `0` because no review ran.)
-
-Main will surface the sandbox diagnostic and abort or retry with an explicitly chosen safer/fallback mode. The runner must not silently switch to `danger-full-access`.
-
-Skip preflight for:
-
-- `danger-full-access`;
-- `inherit`.
-
-## Step R4: Build Codex Command
-
-Use a 600 second timeout for reviewer execution.
-
-**Important runtime notes:**
-- `-o file` (`--output-last-message`) captures the agent's final response to a file. Use this for the review output.
-- `--json` prints JSONL events to stdout (session metadata, tool calls, etc.). This is separate from `-o` and can be used alongside it for diagnostics.
-- `codex exec` is non-interactive — always pass `-c approval_policy=never` to prevent the process from hanging on approval prompts that will never be answered. The sandbox flag (`-s`) is the actual security boundary.
-- Never use `--dangerously-bypass-approvals-and-sandbox` — it removes all sandbox protection. Use `-s <mode>` + `-c approval_policy=never` instead.
-
-Base command:
-
-```bash
-cat "${TMP_ROOT}/advreview-prompt-${REVIEW_ID}.md" | \
-  timeout 600 codex exec -m ${REVIEWER_MODEL} \
-    -s ${REVIEWER_SANDBOX} \
-    -c approval_policy=never \
-    -c model_reasoning_effort=${REVIEWER_REASONING} \
-    -C "${REPO_ROOT}" \
-    -o "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md" \
-    - \
-  2>"${TMP_ROOT}/advreview-stderr-${REVIEW_ID}.txt"
-```
-
-The prompt file is piped via stdin (the `-` argument tells `codex exec` to read from stdin). The `-o` flag writes the agent's last message to the review file. Stderr is captured separately for diagnostics. If `REVIEWER_SANDBOX=inherit`, omit the `-s` flag.
-
-## Step R5: Retry Policy
-
-Retry once with a fresh attempt id only when:
-
-- Codex exits non-zero without a clear input/configuration error;
-- the review file is missing or empty;
-- the review file lacks a final verdict line;
-- stdout/stderr suggests transient CLI failure.
-
-Do not retry when:
-
-- `REVIEW_BACKEND` is invalid;
-- `PROMPT_BODY_PATH` is missing;
-- auth, quota, or model-not-found errors are clear;
-- sandbox preflight failed;
-- timeout already happened twice.
-
-If Codex times out twice, write `timeout`.
-
-If both attempts fail validation, write `launch_failure`.
-
-## Step R6: Validate Review
-
-The review file must:
-
-- exist;
-- be non-empty;
-- contain exactly one final verdict line starting with `VERDICT: APPROVED` or `VERDICT: REVISE`;
-- when the verdict is `REVISE`, the verdict line should include a scorecard summary (e.g. `VERDICT: REVISE — 8 passing, 2 need revision (1 high, 1 medium)`);
-- contain at least one `[severity: critical|high|medium]` tag when verdict is `REVISE`, unless the body is classified as `degraded_environmental`;
-- when `RUBRIC_PRESENT=true`, contain a `# Rubric Results` section with at least one result line matching `^- \[(PASS|FAIL|UNVERIFIABLE)\]`.
-
-Rubric check when `RUBRIC_PRESENT=true`:
-
-```bash
-grep -n -E '^#+ Rubric Results' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md"
-grep -c -E '^- \[(PASS|FAIL|UNVERIFIABLE)\]' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md"
-grep -c -E '^- \[FAIL\]' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md" || true
-```
-
-A missing rubric section counts as a validation failure for the R5 retry policy (the reviewer ignored a required output section). If the retry also omits it, do not write `launch_failure` — the review may still be useful; classify it `degraded_content` in R7 so main treats it as not verified.
-
-Recommended checks:
-
-```bash
-if command -v rg >/dev/null 2>&1; then
-  tail -n 5 "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md" | rg '^VERDICT: (APPROVED|REVISE)'
-  rg -n -i '\[severity:\s*(critical|high|medium)\]' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md"
-else
-  tail -n 5 "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md" | grep -E '^VERDICT: (APPROVED|REVISE)'
-  grep -n -i -E '\[severity:[[:space:]]*(critical|high|medium)\]' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md"
-fi
-```
-
-Extract `reviewer_session_id` from Codex JSONL when available for diagnostics. If unavailable, set it to null.
-
-## Step R7: Classify Review Quality
-
-Classify as `degraded_environmental` when the review body is mostly environment or tool failure text rather than a real review.
-
-Signals include:
-
-- sandbox or `bwrap` failure;
-- auth, login, token, quota, rate-limit, or model-not-found errors;
-- trust/repository confirmation prompt that cannot be answered;
-- `not inside a trusted directory` / `--skip-git-repo-check` refusal (the dispatch should run with `-C "${REPO_ROOT}"`; if this still appears, `REPO_ROOT` is not a git repo — report it as environmental, do not invent findings);
-- "command not found" for required tools;
-- no access to repository content;
-- repeated timeout or cancellation text;
-- a verdict included only around failure diagnostics.
-
-Classify as `degraded_content` when:
-
-- the review has verdict markers but no actionable findings;
-- findings are generic advice not tied to files, sections, commands, or plan details;
-- severity tags exist but the body does not explain concrete impact;
-- the reviewer mostly praises or summarizes rather than audits;
-- `RUBRIC_PRESENT=true` but the review has no `# Rubric Results` section or no per-item result lines (the reviewer ignored the rubric, so the review is not checkable against it);
-- `RUBRIC_PRESENT=true` with `VERDICT: APPROVED` and zero `- [PASS]` lines — an approval where nothing on the checklist was actually verified;
-- the review is internally inconsistent: a `- [FAIL]` rubric line together with `VERDICT: APPROVED`, or a `REVISE` verdict whose scorecard claims zero items need revision.
-
-Classify as `valid` when:
-
-- the review inspected the requested scope;
-- findings, if any, are concrete enough for builder verification;
-- verdict is well-formed;
-- environmental errors are absent or clearly non-blocking.
-
-Use `unknown` only when the runner cannot confidently classify quality.
-
-## Step R8: Triage
-
-Count severity tags:
-
-```bash
-if command -v rg >/dev/null 2>&1; then
-  rg -n -i '\[severity:\s*(critical|high|medium)\]' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md"
-else
-  grep -n -i -E '\[severity:[[:space:]]*(critical|high|medium)\]' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md"
-fi
-```
-
-When `RUBRIC_PRESENT=true`, also count rubric results:
-
-```bash
-grep -c -E '^- \[FAIL\]' "${TMP_ROOT}/advreview-review-${REVIEW_ID}.md" || true
-```
-
-Set:
-
-- `finding_count`
-- `max_severity`: `critical`, `high`, `medium`, or `none`
-- `needs_builder_judgment`: true for `REVISE`, `degraded_content`, or `unknown`
-- `rubric_present`: mirror of the `RUBRIC_PRESENT` input
-- `rubric_fail_count`: number of `- [FAIL]` lines; `0` when no rubric was passed
-
-`degraded_environmental` always needs main-thread handling before builder fixes.
-
-## Step R9: Write Result
-
-Write the JSON result to `RESULT_PATH`.
-
-Then return:
-
-```text
-RUNNER_RESULT_AT: <RESULT_PATH>
-```
-
-## Claude Code Runtime Notes
-
-This runner executes as a Claude Code subagent. Each Bash tool call is an isolated `bash -c` invocation — shell variables do not persist between calls. The runner must:
-
-- Redeclare `REVIEW_ID`, `TMP_ROOT`, `REPO_ROOT`, and all other state variables in every Bash call that references them.
-- Use Claude Code's Write tool (not bash heredocs) for writing multi-line content that contains markdown, backticks, or shell metacharacters.
-- On Windows/Git Bash, use the bash `/tmp/...` path for Bash tool calls and the platform-native path (e.g., `C:\Users\...\Temp\...`) for Write/Read tool calls if needed.
-- Verify hash and output files are non-empty after writing them — empty files indicate variable expansion failure.
-
-## Runner Rules
-
-- Do not edit project files.
-- Do not apply fixes.
-- Do not start multiple review rounds.
-- Do not delete temp files; main owns cleanup.
-- Do not include the review text inside the JSON.
-- Do not silently relax sandbox or approval policy.
-- Treat the dirty-file warning list as read-only protected user work.
-- Report environmental failures as `degraded_environmental`, not invented findings.
-
+The runner freezes stdin in a private OS temp directory and launches the CLI
+from that directory, with stdin closed when exhausted. CLI discovery uses
+`CODEX_REVIEW_CLI`, `CODEX_BIN`, PATH, common local/npm installations, and
+the current user's VS Code native binary. An invalid explicit path is a visible
+setup error. Windows npm shims resolve to their Node entrypoint; no shell command
+is constructed. Another user's credentials/extension directories are never scanned.
+
+## Model and capability selection
+
+Default: omit model override, letting the authenticated CLI/account choose.
+Codex custom `model_provider` definitions and their configured model are
+preserved while user/project automation config is isolated. For standard accounts,
+do not import a newer builder/IDE model choice into an older CLI. `--model configured`
+explicitly selects the top-level Codex model; `--model cli-default` omits it. Profiles are not
+implicitly selected. Explicit model: `--model MODEL` or `CODEX_REVIEW_MODEL`.
+Aliases supplied by the provider are fine; reproducible runs may pin a full ID.
+When the CLI does not expose the resolved default model, report `cli_default`
+rather than inventing an ID. Log requested model and CLI version.
+
+Optional `--fallback-model MODEL` / `CODEX_REVIEW_FALLBACK_MODEL` is tried only
+after a model-availability error, with at most two attempts total. Explicit
+fallback use is announced and recorded. Timeout/auth/quota/permission/network/
+configuration/output errors stop; no weaker model or permissions are substituted.
+No redundant model-health generation precedes every full review. `--reasoning`
+is optional; use the model's default unless latency/quality needs justify an
+override. Unsupported flags/settings produce a visible error; update the CLI.
+
+## Isolation
+
+Claude: `-p`, `dontAsk`, no tools or slash commands, empty settings sources,
+disabled hooks/memory, strict empty MCP, replacement system prompt, no session
+persistence. `--bare` is intentionally absent: it can exclude subscription OAuth.
+The nested `CLAUDECODE` marker is removed only in the independent child process.
+Default limits: eight turns, $3 API budget ceiling where Claude supports it.
+
+Codex: `exec`, read-only sandbox, approval policy `never`, empty temp working root,
+`--ignore-user-config`, disabled web search, schema-constrained final output,
+JSONL diagnostic events, and ephemeral mode when available. Authentication stays
+in its normal location. There is no silent danger-full-access fallback. The
+Codex CLI's built-in tools can still exist; read-only does not mean no filesystem
+read access. Frozen stdin and temp cwd limit context; they are not an OS isolation
+boundary. Use an externally isolated environment for stronger confidentiality.
+
+## Observable terminal result
+
+The requested result file is atomically replaced with `running` before any CLI
+probe. Heartbeat every 15 seconds. Default review deadline 600 seconds per attempt;
+version/help/auth probes have 20-second deadlines. Timeout/interruption stops the
+process tree. Change limits with `--timeout`, `--heartbeat`, `--max-turns`, and
+`--max-budget-usd`. Codex has no equivalent dollar ceiling; timeout bounds duration,
+not spend. Use your account's usage limits as needed.
+
+Every handled runtime failure writes a terminal envelope, prints a diagnostic,
+and returns nonzero. If the requested result is unwritable, the envelope is
+printed to stdout and exit 6 names the persistence failure. Invalid arguments
+return argparse usage/nonzero before a run starts. A forced runner kill/power
+loss may leave `running`; this is never a review. A result inside the reviewed
+repo is rejected without writing there, and the error envelope is printed.
+
+Envelope fields: `protocol_version`, `result`, `verdict`, `review_quality`,
+`review`, `errors`, `session_id`, `backend`, `reviewer_model`, `model_source`,
+`cli_path`, `cli_version`, `attempts`, `diagnostics_dir`, `mutation_check`, and
+`elapsed_seconds`. Fields not reached during failed preflight may be absent.
+
+`result`: `success`, `running`, `setup_needed`, `input_error`, `launch_failure`,
+`timeout`, `cancelled`, `invalid_output`, `not_verified`, `mutation_detected`.
+Only `success` plus `valid` plus an unchanged requested snapshot can be accepted.
+Exit codes: 0 valid review; 2 setup/input; 3 launch/timeout; 4 output/degraded;
+5 mutation/check failure; 6 persistence failure; 130 interruption.
+
+Each attempt has separate stdout/stderr/final output. Logs and frozen bundle
+remain in `diagnostics_dir` on success and failure; they may contain selected
+source and must not be posted publicly. Console/envelope errors redact common
+token formats. Raw logs are local evidence, not guaranteed sanitized.
+
+## Validation and mutation
+
+Both backends receive `references/review-schema.json`. Local validation checks
+every declared type, required field, enum, minimum string length, and unexpected
+field. `approved` requires zero findings; `revise` with valid quality requires findings; a degraded review may honestly lack findings. Claude
+outer error/budget/turn envelopes are not reviews even with exit 0.
+
+`--rubric-items FILE` accepts a JSON array of unique identifiers that correspond
+to verbatim checklist text in the bundle. Duplicate/unknown results and approval
+alongside FAIL are invalid; missing identifiers, majority UNVERIFIABLE, or
+all-unverified approval yield `not_verified`. With no rubric, the output array
+is empty. The builder still checks whether evidence substantiates each result.
+
+`--repo` automatically compares HEAD, Git status, working/staged binary diff,
+and nonignored untracked bytes before/after, including on dispatch failure.
+`--scope PATH` additionally hashes each reviewed context/source path. An unborn
+Git repository is allowed. Symlink targets outside the repo are rejected. No
+volatile exclusions are silently inferred. Concurrent builds can trigger a real
+mutation alert; rerun after they settle. This detects persistent changes, not
+transient writes that are perfectly restored or changes to ignored unreviewed files.
+
+`selftest` needs no project checkout or repository test suite. Offline checks
+prove discovery/parser/temp/auth only. `--live-probe` sends synthetic content,
+costs account usage, and alone can establish live dispatch readiness. Authentication
+probes may contact the provider but send no project content. Do not install CLIs,
+change login/configuration, or widen permissions automatically on test failure.

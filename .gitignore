@@ -11,3 +11,6 @@ audits/
 
 # Temporary scratch output.
 tmp/
+
+__pycache__/
+*.pyc
