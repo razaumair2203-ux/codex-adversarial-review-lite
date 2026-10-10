@@ -1,22 +1,28 @@
 # Troubleshooting
 
-| Symptom | Likely Cause | Fix |
-|---|---|---|
-| Not sure if setup works on this machine | First-time install, new platform, or after upgrades | Run `/codex-adversarial-review-lite selftest` — it validates all prerequisites, paths, model access, and dispatch without sending repo content. |
-| `/codex-adversarial-review-lite audit` is not available | Skill folder is missing or Claude Code has not reloaded skills | Confirm `~/.claude/skills/codex-adversarial-review-lite/SKILL.md` exists, then restart Claude Code. |
-| Skill starts but says Codex is missing | Codex CLI is not installed or not on `PATH` | Run `npm install -g @openai/codex`, then reopen Claude Code and run `codex --version`. |
-| Codex health check fails | Not logged in, bad config, proxy/network issue, or broken Codex install | Run `codex login` and `codex doctor --summary` in the same shell Claude Code uses. |
-| Reviewer model unavailable | Your Codex account cannot use the default model | The skill auto-tries fallback models (gpt-5.5 -> o3 -> gpt-4.1 -> gpt-4o). If all fail, run `codex login` to check auth, or specify a model explicitly: `reviewer:<model-you-have>`. **Note:** if the stderr mentions a "trusted directory", the cause is the working directory, not the model — see the next row. |
-| All models report "unavailable" but Codex/auth is healthy; stderr says `Not inside a trusted directory` | `codex exec` refuses to run outside a git repository unless `--skip-git-repo-check` is passed. Earlier versions of the preflight/self-test dispatch did not pass it, so a non-repo working directory looked like a total model outage. | Fixed: the preflight and self-test dispatches now pass `--skip-git-repo-check` (they send no repo content), and the real audit runs with `-C "${REPO_ROOT}"`. Run the audit/self-test from inside a git repository; if your code is not yet under version control, run `git init` first. |
-| Windows sandbox fails with `bwrap` | Linux sandbox tooling is unavailable on Windows | Use the default Windows behavior first. Read `docs/windows-sandbox.md` before overriding sandbox settings. |
-| Missing `timeout`, `grep`, `tail`, `sort`, or `sha256sum` | Shell lacks POSIX tooling | Use Git Bash or WSL on Windows. Reopen Claude Code after changing `PATH`. |
-| Output is mostly setup or sandbox errors | Reviewer did not inspect the repo meaningfully | Treat the audit as not verified. Fix setup and rerun. |
-| Reviewer gives generic advice | Scope was too broad or context was weak | Rerun with focused files, test specs, or sample data. |
-| Builder wants to apply a large refactor from reviewer feedback | Reviewer recommendation may be over-scoped | Use `re-scope` or ask the user before structural changes. |
-| HTML report contains sensitive details | Report scope included too much context | Do not publish the report. Regenerate with secrets removed and narrower scope. |
-| Mutation check passes but files were actually changed | Hash files are empty due to variable expansion failure in Bash calls | Each Bash tool call in Claude Code is isolated — `REVIEW_ID`, `TMP_ROOT`, etc. must be redeclared in every call. Check that hash `.sha` files are non-empty before and after dispatch. See "Claude Code Runtime Notes" in SKILL.md. |
-| Prompt body is truncated or contains shell artifacts | Bash heredoc broke on markdown metacharacters (backticks, `$`, single quotes) | Use Claude Code's Write tool to create the prompt body file, not a bash heredoc. See Step 7 in SKILL.md. |
-| Temp files not found by Write/Read tools on Windows | Git Bash `/tmp` path not recognized by Claude Code's file tools | Use the platform-native path (e.g., `C:\Users\...\AppData\Local\Temp\...`) for Write/Read tool calls. Run `cd /tmp && pwd -W` in Git Bash to find the native path. See "Windows Path Resolution" in SKILL.md. |
-| `strict` stops immediately with "strict mode requires a rubric" | Strict mode always requires a domain checklist | Add `rubric:<path>` to the same command, e.g. `audit strict rubric:docs/checklist.md`, or describe the rules in chat when the skill asks and let it build the rubric for you. |
-| Audit pauses after an APPROVED verdict asking you to reply `reviewed-ok` | The change touched a floor category (auth, billing, migrations/destructive data, secrets, regulatory) — an APPROVED verdict alone does not end the audit there | This is expected, not a bug. Look at the diff shown and reply `reviewed-ok`, or `concern: <what looks wrong>` to send it back through the normal REVISE path. |
-| Review comes back as "not verified" / `degraded_content` even though a rubric was supplied | The reviewer skipped rubric items, answered `APPROVED` with zero PASS entries, or approved alongside a FAIL result | Re-run the audit; if it repeats, the rubric may be ambiguous for the given scope — tighten the checklist items or narrow the reviewed scope. |
+Start with `/codex-adversarial-review-lite selftest`. Use `live-probe` to verify the real reviewer.
+Record the result and diagnostic directory, not only the last chat message.
+
+| Symptom | Action |
+|---|---|
+| Skill missing from selector | Check the installer-reported path contains SKILL.md; reopen the host. Check host skill visibility settings. |
+| Python missing/too old | Install Python 3.11+ from python.org, enable PATH, reopen the terminal. macOS/Linux normally use python3. |
+| Reviewer missing despite installation | Reopen the host after PATH changes. Set `CODEX_REVIEW_CLI` to the absolute native executable or npm shim. Invalid overrides fail visibly. |
+| Windows npm shim launch fails | Ensure Node and the npm package are present beside the shim, or point the override to a native executable. The runner avoids shell quoting. |
+| Authentication fails in an agent sandbox | Run the auth-status command under your normal account. Host sandbox credentials/permissions can differ. Use the host's supported approval mechanism for the specific launch. |
+| Installed runner cannot be read or executed | Inspect the actual host denial; request supported approval for that specific runner command. Do not disable the reviewer's restrictions. If approval is unavailable in unattended mode, report blocked. |
+| Claude says Unknown skill in an automated session | Keep the user settings source enabled for the host: excluding it with `--setting-sources ""` also hid installed user skills in the tested CLI. The isolated reviewer deliberately disables skills. |
+| Model is not supported for this account | Explicit models are not silently replaced. Use an available model/provider alias or `reviewer:cli-default`. Compare terminal/IDE CLI versions; their catalogs can differ. |
+| CLI lacks required flags | Update the reviewer CLI using its official instructions. A newer documentation page does not prove your installed CLI supports a flag. |
+| Auth/quota/network/config error | Fix that error; changing models or disabling sandboxing is not a general solution. Terminal JSONL provider errors take precedence over noisy startup warnings. |
+| Review appears to vanish | Read the result JSON and logs. `running` means pending or interrupted, never approved. The host agent must resume a yielded process/session. |
+| Timeout/cancellation | Runner stops the process tree and reports nonzero. Diagnose before one deliberate retry; do not loop full-bundle calls. |
+| Process-tree cancellation denied | The result reports failure and warns descendants may remain. Inspect local processes before retrying; do not interpret a stopped parent as proof the entire tree stopped. |
+| Local check passes, remote review fails | Expected distinction: offline checks do not verify model access. Inspect `live-probe` diagnostics. |
+| Missing/malformed/contradictory output | Treat as invalid/not verified. The parser rejects stale output, outer CLI error envelopes, invalid evidence/severity, and contradictory verdicts. |
+| Rubric partly skipped or all UNVERIFIABLE | Review is not verified. Improve evidence or clarify the checklist; do not treat a guessed PASS as evidence. |
+| Mutation detected | Stop fixes and inspect changes. Concurrent builds may change the repo; rerun after they settle. Never exclude reviewed source to get a pass. |
+| Legacy /adversarial-reviewer-lite installed | Use /codex-adversarial-review-lite. The legacy copy is reported and preserved; archive it when ready. |
+
+Raw diagnostic logs can contain selected source and provider messages. Keep them
+local or redact before sharing. Do not paste auth files, tokens, or environment dumps.

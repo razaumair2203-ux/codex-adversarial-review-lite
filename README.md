@@ -1,570 +1,140 @@
-﻿# Codex Adversarial Review - Lite (Codex AR-L)
+# codex-adversarial-review-lite
 
-**Claude builds. Codex audits.**
+**Claude Code builds. Codex reviews. You decide.**
 
-When you build with AI coding tools, you are trusting AI-generated code to work correctly. This skill makes a second, independent AI review that code before you accept it. Claude builds. Codex reviews. The skill validates each finding, explains what matters in plain language, and presents a readable report. Nothing changes until you sign off.
+This skill sends a focused review bundle to the other provider's CLI, validates
+its structured response, checks for repository mutation, and asks the builder
+to verify each finding before applying fixes. It supports changes, plans,
+feasibility, checklists, and a strict human review policy.
 
-**Codex Adversarial Review - Lite** is a Claude Code skill that adds an independent adversarial review to your AI coding workflow. It is for product builders — people using AI to build apps, APIs, and products that matter. If you are changing auth, data writes, billing, migrations, or multi-file refactors, and a hallucinated API or missing edge case would cost real time, this workflow is for you.
+The [sibling skill](https://github.com/razaumair2203-ux/claude-adversarial-review-lite) reverses the
+direction. Both use the same executable protocol; their host metadata differs.
+An independent review is another source of evidence, not proof of correctness.
+When no material defect is supported, no change is needed.
 
-**Cross-platform.** Runs on Windows (Git Bash), macOS, Linux, and WSL — with platform-aware defaults that actually work on each. Every platform has its own way of breaking tools quietly: Linux sandboxing does not exist on Windows, macOS puts core utilities behind Homebrew, Git Bash maps temp directories to different physical paths than other tools see. The skill detects your platform, handles sandbox limitations explicitly, and works out of the box.
+## Install
 
-**Model fallback.** If the default reviewer model is unavailable or gets deprecated, the skill tries the next model automatically (gpt-5.5 → o3 → gpt-4.1 → gpt-4o) instead of stopping dead.
+You need Git, **Python 3.11+**, and both coding CLIs installed and signed in.
+No Python packages, jq, GNU timeout, or subagent setup are needed.
+See official [Python downloads](https://www.python.org/downloads/),
+[Codex setup](https://developers.openai.com/codex/cli/), and
+[Claude Code setup](https://code.claude.com/docs/en/setup).
 
-**Self-test.** One command validates your entire setup — shell, tools, paths, hash capture, model access, and end-to-end dispatch — before you run a real audit. No code leaves your machine.
+Check the prerequisites in a fresh terminal:
+
+```text
+git --version
+python --version
+codex --version
+claude --version
+codex login status
+claude auth status
+```
+
+If needed, sign in with `codex login` or `claude auth login`.
+On macOS/Linux use `python3` where these examples say `python`.
+On Windows, enable Python's PATH option during installation; `py -3.11` also works.
+
+```text
+git clone https://github.com/razaumair2203-ux/codex-adversarial-review-lite.git
+cd codex-adversarial-review-lite
+python scripts/install.py --check
+```
+
+PowerShell and Bash installers remain available: `./scripts/install.ps1 -Check`
+or `bash scripts/install.sh --check`. The installer stages a complete copy and
+preserves any previous installation under the host's `skill-backups` directory.
+It does not delete your old skill or edit your CLI login/configuration.
+`--check` performs installed local checks, with no generation call.
+
+Use the skill on your next turn; reopen Claude Code if it does not appear.
+
+## Use
 
 ```text
 /codex-adversarial-review-lite selftest
-```
-
-**Why a separate agent instead of self-review?** Research shows that LLMs can struggle to self-correct without external feedback and can even degrade correct answers ([Huang et al., 2023](https://arxiv.org/abs/2310.01798)). Prompted self-correction is unreliable without external signals ([TACL, 2024](https://aclanthology.org/2024.tacl-1.78/)). Independent model perspectives can measurably reduce hallucinations ([Du et al., 2023](https://arxiv.org/abs/2305.14325)). Same-agent review often preserves the same blind spots. A different agent brings different priors and a different failure surface.
-
-**This is not circular.** The builder builds and helps you define test specifications. You invoke the audit. The builder passes the code and specification contract to the reviewer. The reviewer reviews adversarially — it does not touch any files. Findings go back to the builder. The builder assesses and validates each issue — still does not touch any artifact — and presents an easy-to-read HTML report: what the issues are, their impact, and recommended next steps. Nothing changes until you sign off.
-
-![Audit report preview](docs/assets/audit-report-preview.svg)
-
-The preview above shows the workflow: a report-before-code audit, not just a raw second-agent opinion.
-
-**If you are building with Claude Code, I would love your feedback** — what works, what is missing, what would make this more useful. Open an issue at https://github.com/razaumair2203-ux/codex-adversarial-review-lite/issues or reach out.
-
-Golden rule:
-
-```text
-Build with Claude. Before you trust the change, run:
+/codex-adversarial-review-lite selftest live-probe
 /codex-adversarial-review-lite audit
-```
-
-Claude Code may not reliably prompt you to use this skill automatically. Treat it as a deliberate review habit: after Claude writes a plan, changes code, or claims a fix is done, manually invoke the audit.
-
-## One-Minute Install
-
-Clone the repo:
-
-```bash
-git clone https://github.com/razaumair2203-ux/codex-adversarial-review-lite.git
-cd codex-adversarial-review-lite
-```
-
-Install the skill on macOS/Linux/Git Bash:
-
-```bash
-bash scripts/install.sh
-```
-
-Install the skill on Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
-```
-
-If PowerShell scripts are blocked by policy and you cannot change it, copy the skill folder manually:
-
-```powershell
-$dest = "$env:USERPROFILE\.claude\skills\codex-adversarial-review-lite"
-if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-Copy-Item -Recurse "skills\codex-adversarial-review-lite" $dest
-```
-
-Restart Claude Code if it was already open. On Windows, make sure Claude Code is using Git Bash or WSL as its shell before invoking the audit — the skill requires a bash-compatible shell at runtime.
-
-```text
-/codex-adversarial-review-lite audit
-```
-
-Optional habit reminder: copy [snippets/claude-md-reminder.md](snippets/claude-md-reminder.md) into your project's `CLAUDE.md`.
-
-Optional Git hook reminder: copy [snippets/post-commit-reminder.sample](snippets/post-commit-reminder.sample) to `.git/hooks/post-commit` and make it executable. It only prints a reminder; it does not run the audit.
-
-The tested setup is:
-
-- **Builder:** Claude Code
-- **Reviewer backend:** Codex CLI
-- **Default reviewer model:** `gpt-5.5`
-
-The underlying terms `builder`, `reviewer`, and `review_backend` keep the design portable later, but the first public release is not trying to support every agent stack.
-
-Author's note: this workflow was developed using Claude Code as the builder and Codex as the reviewer. In my own projects, that split significantly improved review quality because the reviewer caught mistakes, scope drift, weak tests, and unverified claims the builder was more likely to miss.
-
-## Repository Structure
-
-```text
-codex-adversarial-review-lite/
-  README.md
-  LICENSE
-  .gitignore
-  scripts/install.sh
-  scripts/install.ps1
-  skills/codex-adversarial-review-lite/SKILL.md
-  skills/codex-adversarial-review-lite/references/runner.md
-  skills/codex-adversarial-review-lite/references/sample-audit-report.html
-  snippets/claude-md-reminder.md
-  snippets/post-commit-reminder.sample
-  docs/assets/audit-report-preview.svg
-  docs/assets/audit-report-preview.jpg
-  docs/assets/audit-report-anatomy.svg
-  docs/assets/audit-report-anatomy.jpg
-  docs/windows-sandbox.md
-  docs/how-to-use.md
-  docs/no-codex-yet.md
-  docs/troubleshooting.md
-  docs/release-checklist.md
-  docs/launch.md
-  docs/linkedin-post.md
-  docs/why-independent-review.md
-  docs/safety-model.md
-  examples/sample-review.md
-  examples/sample-audit-report.html
-```
-
-- `skills/codex-adversarial-review-lite/SKILL.md` is the main Claude Code skill. It defines invocation options, safety checks, the audit workflow, evaluation discipline, and terminal summaries.
-- `skills/codex-adversarial-review-lite/references/runner.md` is the Codex-specific reviewer backend contract. It launches Codex CLI, validates output, classifies review quality, and returns JSON to the main skill.
-- `skills/codex-adversarial-review-lite/references/sample-audit-report.html` is the installed canonical HTML report template.
-- `scripts/` installs the skill folder into your Claude Code skills directory.
-- `snippets/` contains optional reminder snippets. Nothing is installed automatically.
-- `docs/assets/audit-report-preview.svg` is the README hero image for the audit workflow.
-- `docs/assets/audit-report-preview.jpg` is the LinkedIn-friendly version of the hero image.
-- `docs/assets/audit-report-anatomy.svg` maps the HTML report sections for new users.
-- `docs/assets/audit-report-anatomy.jpg` is the LinkedIn-friendly version of the report anatomy image.
-- `docs/windows-sandbox.md` explains why Windows often needs different sandbox handling.
-- `docs/how-to-use.md` explains cloning, installing, invoking, and when to prefer the skill over a manual second-agent review.
-- `docs/no-codex-yet.md` gives a manual trial path for users who have not installed Codex CLI yet.
-- `docs/troubleshooting.md` is a symptom/fix table.
-- `docs/release-checklist.md` and `docs/launch.md` help publish and share the repo.
-- `docs/linkedin-post.md` is a public launch-post draft for non-specialist audiences.
-- `docs/why-independent-review.md` explains the builder/reviewer split and the research/practice rationale.
-- `docs/safety-model.md` lists the trust boundaries, controls, and known limits.
-- `examples/` shows what reviewer output and the optional audit report look like.
-
-## Why This Exists
-
-Coding agents are useful, but they can still:
-
-- cite APIs or packages that do not exist;
-- over-expand the task beyond the user's request;
-- pass their own flawed assumptions into tests or explanations;
-- apply review feedback too obediently, even when the reviewer is wrong.
-
-Codex Adversarial Review - Lite adds a small audit workflow:
-
-1. The user invokes `/codex-adversarial-review-lite audit`.
-2. The builder collects the plan/code scope plus focused test data or test specifications.
-3. Codex reviews as an independent auditor.
-4. The reviewer output is shown verbatim.
-5. The builder validates each reviewer observation instead of obeying it blindly.
-6. Before touching code, the builder presents a beginner-readable report and offers/saves the HTML audit artifact.
-7. The user signs off before any fixes are applied.
-
-It reduces risk. It does not guarantee correctness.
-
-## When To Run It
-
-Run:
-
-```text
-/codex-adversarial-review-lite audit
-```
-
-after Claude Code:
-
-- finishes a non-trivial code change;
-- proposes a plan you are about to approve;
-- touches auth, data writes, migrations, billing, file deletion, background jobs, or permissions;
-- says tests passed but you want a second model to inspect the verification;
-- makes changes across multiple files;
-- explains an API, CLI flag, package, or framework behavior you are not sure exists;
-- starts expanding scope beyond what you asked for.
-
-You probably do not need it for tiny typo fixes, comments, or purely cosmetic edits.
-
-## Copy-Paste Prompts
-
-Basic audit:
-
-```text
-/codex-adversarial-review-lite audit
-```
-
-Audit a specific file:
-
-```text
-/codex-adversarial-review-lite audit path/to/file.ts
-```
-
-Audit against focused test expectations:
-
-```text
+/codex-adversarial-review-lite plan
 /codex-adversarial-review-lite audit test-spec:docs/change-tests.md
+/codex-adversarial-review-lite audit rubric:docs/checklist.md
+/codex-adversarial-review-lite audit strict rubric:docs/checklist.md
 ```
 
-Audit with edge-case fixtures:
+`selftest` checks local discovery, authentication, temp paths, and the installed
+parser. It does **not** prove the remote reviewer ran. `live-probe` makes one
+synthetic review call without project content; account usage may apply. Its
+result is the evidence that live dispatch works.
+
+Model selection defaults to this CLI's account default. There is no fixed
+model/version chain. You can specify `reviewer:<model-or-provider-alias>`,
+`fallback:<model>`, and `reasoning:<level>` deliberately. A fallback is used only
+for an availability error and is reported. Codex custom providers keep their
+configured endpoint/model; `reviewer:configured` explicitly selects the top-level
+Codex model and `reviewer:cli-default` skips that model setting. No account-wide
+model preference is changed. Newer models alone do not establish better review
+quality; measure defect detection, unsupported findings, latency, and cost.
+
+## What you should see
+
+The builder states the review scope, creates a frozen bundle, and launches the
+runner directly. The runner reports its selected CLI/model, writes `running`,
+prints progress every 15 seconds, and produces a terminal result. You then see
+the review and the builder's evidence-backed decisions on each finding.
+
+A missing executable, unsupported model, auth problem, timeout, invalid response,
+or changed repository is an explicit failure/not-verified result. Logs and attempt
+metadata remain available at the reported diagnostic path. A successful launch
+or local self-test is never reported as a completed audit.
+
+Installed and signed-in CLIs still need permission to run from the host. If its
+sandbox blocks the installed script, account files, or network access, approve
+the specific runner launch using the host's normal permission mechanism. The
+independent reviewer keeps its restricted settings. A denied launch is reported
+as blocked; the skill does not claim that a reviewer ran.
+
+Rubrics receive PASS/FAIL/UNVERIFIABLE results with exact item coverage. Strict
+mode requires a rubric and human sign-off after findings. Auth, billing,
+destructive data, secrets, and regulatory changes retain a human-review floor.
+Explicit authorization already supplied by the user is respected; ordinary
+review dispatch does not add repeated confirmation prompts.
+
+## Upgrade and troubleshooting
+
+[How to use](docs/how-to-use.md), [troubleshooting](docs/troubleshooting.md),
+[evidence and upgrade decisions](docs/upgrade-plan.md), and
+[the executable protocol](skills/codex-adversarial-review-lite/references/runner.md).
+
+Protocol 2 adds Python and structured output in both directions. Legacy shell
+orchestration, textual verdict parsing, mandatory transport subagents, and
+automatic full-access sandbox fallback are replaced. Positional shell runner
+model arguments and PowerShell bundle/result/model parameters remain supported;
+use the documented named flags for other settings.
+
+## Privacy and limits
+
+Only selected bundle content is intentionally sent to the external reviewer.
+Claude has no tools; Codex runs read-only in a temp directory with automation
+configuration isolated. Read-only sandboxing is not a no-read security boundary,
+and snapshots are detection, not an OS guarantee. For stronger isolation, use an
+externally isolated environment. No runner silently bypasses permissions.
+
+Local logs include the frozen bundle and may contain source; do not publish
+them without inspection. Schema-valid findings can be wrong. The builder must
+verify them, and review cannot replace tests or human judgment.
+
+## Maintainer checks
 
 ```text
-/codex-adversarial-review-lite audit test-spec:docs/change-tests.md test-data:fixtures/change-cases.json
+python -m unittest discover -s tests -v
 ```
 
-Audit against a domain checklist (reviewer reports PASS/FAIL per item):
-
-```text
-/codex-adversarial-review-lite audit rubric:docs/compliance-checklist.md
-```
-
-Strict mode for high-consequence repos:
-
-```text
-/codex-adversarial-review-lite audit strict rubric:docs/compliance-checklist.md
-```
-
-If your account cannot use the default reviewer model:
-
-```text
-/codex-adversarial-review-lite audit reviewer:<your-codex-model>
-```
-
-## Why A Skill Instead Of A Second Chat Window?
-
-You can open a separate Codex or Claude window and ask it to review your code. That is better than no review, but it is easy to forget important guardrails.
-
-The skill makes the review repeatable:
-
-- it uses the same audit-first prompt structure every time;
-- it passes focused test specs and sample data when available;
-- it warns before repo content goes to an external reviewer;
-- it preflights the requested Codex model;
-- it handles platform-specific sandbox defaults explicitly;
-- it records Git and dirty-file hashes before/after reviewer dispatch;
-- it requires `VERDICT: APPROVED` or `VERDICT: REVISE`;
-- it separates reviewer suggestions from builder decisions;
-- it can produce a consistent HTML audit report.
-
-The benefit is not that the skill is smarter than a human prompt. The benefit is that it is harder to accidentally skip the boring safety steps that matter when an AI is reviewing another AI's work.
-
-## How The Flow Works
-
-1. The user invokes `/codex-adversarial-review-lite audit`.
-2. The skill detects platform and Git repo state.
-3. The user sees a privacy notice before repository context is sent to the reviewer backend.
-4. The builder gathers a focused review bundle: plan/code diff, relevant files, test specifications, edge cases, expected behavior, known constraints, and sample test data when available.
-5. The skill captures repo mutation snapshots: Git status, dirty-file list, and dirty-file content hashes.
-6. Codex model preflight checks whether the requested reviewer model is available.
-7. The builder creates the review contract: selected scope, focused test expectations, any rubric, and strict auditor instructions.
-8. The builder shows the review contract to the user as concise bullets before dispatch, and folds in any additions the user wants — refined into concrete, checkable items — so the reviewer only sees the contract the user approved.
-9. The skill hashes prompt inputs after the (possibly amended) prompt body exists and immediately before dispatch.
-10. The Codex runner launches the reviewer with the configured model, reasoning, sandbox, and approval policy.
-11. The runner validates the review, extracts `VERDICT: APPROVED` or `VERDICT: REVISE`, and classifies review quality.
-12. The main skill compares pre/post mutation snapshots before any fixes are allowed.
-13. The reviewer output is shown verbatim.
-14. The builder evaluates each finding using the matrix: accept, reject, re-scope, or defer.
-15. The builder presents the audit report and HTML report option before touching code.
-16. Only after user sign-off may the builder apply verified accepted/re-scoped fixes.
-17. Every terminal state ends with a beginner-readable summary of findings, verification, rejected observations, structural concerns, and remaining risks.
-
-## What Good Looks Like
-
-A useful audit should give you:
-
-- raw reviewer findings;
-- a builder-side decision for each finding: accepted, rejected, re-scoped, deferred, or needs verification;
-- evidence for tool/API/config claims when practical;
-- a clear statement of what will be changed, if anything;
-- an optional HTML report before fixes;
-- no code changes until you sign off.
-
-If the output is mostly sandbox errors, generic advice, or praise, treat it as not verified and fix the setup or prompt scope before trusting it.
-
-## Skill File Versus Runner
-
-`SKILL.md` is the workflow brain. Claude Code reads it when the user invokes the skill. It tells Claude how to collect scope, warn about privacy, build the reviewer prompt, evaluate findings, ask for sign-off, and create the audit report.
-
-`references/runner.md` is the backend contract. A short-lived subagent reads it to launch Codex CLI, write the raw review to a temp file, validate the final verdict, classify review quality, and return JSON to the main skill. The runner does not edit project files and does not apply fixes.
-
-## Quick Start
-
-1. Install this skill.
-
-   ```bash
-   bash scripts/install.sh
-   ```
-
-   Or on Windows PowerShell:
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
-   ```
-
-2. Install Codex CLI and authenticate it.
-
-   ```bash
-   npm install -g @openai/codex
-   codex --version
-   codex login
-   codex doctor --summary
-   ```
-
-3. Make sure the shell Claude Code uses can run the required local tools.
-
-   ```bash
-   git --version
-   codex --version
-   timeout --version
-   grep --version
-   tail --version
-   sort --version
-   sha256sum --version || shasum --version
-   ```
-
-   On Windows, Git Bash or WSL is required for running audits because the skill uses POSIX commands (`timeout`, `grep`, `tail`, `sort`, `sha256sum`) and bash syntax throughout. The skill will stop with an error if the shell is not bash-compatible.
-
-4. Confirm the skill folder exists.
-
-   ```text
-   ~/.claude/skills/codex-adversarial-review-lite
-   ```
-
-5. Validate your setup.
-
-   ```text
-   /codex-adversarial-review-lite selftest
-   ```
-
-6. Invoke it from Claude Code.
-
-   ```text
-   /codex-adversarial-review-lite audit
-   ```
-
-7. Optional overrides:
-
-   ```text
-   /codex-adversarial-review-lite audit reviewer:gpt-5.5 reasoning:xhigh
-   /codex-adversarial-review-lite audit test-spec:tests/profile-save.spec.md
-   /codex-adversarial-review-lite audit test-data:fixtures/profile-edge-cases.json
-   /codex-adversarial-review-lite audit sandbox:inherit approvals:never
-   ```
-
-See [docs/how-to-use.md](docs/how-to-use.md) for clone/install options and examples.
-
-If you do not have Codex CLI yet, see [docs/no-codex-yet.md](docs/no-codex-yet.md).
-
-## Habit Checklist
-
-Before accepting an AI-generated change:
-
-- Did I run `/codex-adversarial-review-lite audit`?
-- Did I provide test expectations or edge cases if they matter?
-- Did the reviewer produce `VERDICT: APPROVED` or `VERDICT: REVISE`?
-- Did the builder reject or re-scope weak reviewer advice instead of blindly obeying it?
-- Did I approve fixes only after seeing the report?
-
-## Optional Reminders
-
-To make the habit stick, you can paste [snippets/claude-md-reminder.md](snippets/claude-md-reminder.md) into a project's `CLAUDE.md`. This tells Claude to suggest the audit after non-trivial changes, but not to run it automatically.
-
-You can also install the sample post-commit reminder:
-
-```bash
-cp snippets/post-commit-reminder.sample .git/hooks/post-commit
-chmod +x .git/hooks/post-commit
-```
-
-The hook only prints a reminder. It does not call Codex and does not send repo context anywhere.
-
-## V1 Scope
-
-- **Audit mode:** recommended v1 path. One reviewer pass, builder validates findings, report/HTML is presented, user signs off before fixes.
-- **Plan/code scope:** supported inside audit. The builder can include a plan, code diff, or both in the audit bundle.
-- **One-pass audit only in v1:** repeated fix/review rounds are intentionally out of scope for the first release.
-
-## Test Specs And Test Data
-
-The best audits are exhaustive but focused. Give the builder enough test intent to pass to Codex:
-
-- expected behavior;
-- edge cases;
-- sample inputs and outputs;
-- regression cases;
-- commands the project normally uses for validation;
-- test files or fixtures that matter;
-- scenarios that must stay out of scope.
-
-Example:
-
-```text
-/codex-adversarial-review-lite audit test-spec:docs/profile-save-tests.md test-data:fixtures/profile-cases.json
-```
-
-The reviewer should use this information to check whether the plan/code has enough verification. The builder still decides what is valid before touching code.
-
-## Core Safety Discipline
-
-Codex Adversarial Review - Lite deliberately does not trust either agent blindly.
-
-- Reviewer output is shown verbatim before fixes.
-- The audit report is presented before code is touched.
-- Every finding goes through an evaluation matrix.
-- Tool, CLI, package, config, and API claims need empirical verification when practical.
-- Structural changes, such as workflow, sandbox, approval, data, or architecture changes, require a user gate unless the user explicitly asked for autonomous fixing.
-- The builder may accept, reject, re-scope, or defer reviewer findings.
-- Terminal summaries explain what changed, what was verified, what was rejected, and what risk remains.
-
-This is the main difference between a useful review workflow and a dangerous "AI told AI to change code" workflow.
-
-## Human-Review Floor, Rubrics, And Strict Mode
-
-Three additions for high-consequence work:
-
-**Human-review floor.** An `APPROVED` verdict is not a terminal state when the change touches auth/permissions, money/billing, migrations/destructive data operations, secrets, or regulatory-tagged paths. On these changes the skill shows you the diff and asks for explicit confirmation before the audit completes. The reasoning: a clean second-model approval on a billing change should produce *more* human scrutiny, not less — two frontier models can share the same training-distribution blind spot. Tag repo-specific floor paths in an optional `.advreview-floor` file (one extended-regex pattern per line) at the repo root.
-
-**Rubrics.** Pass `rubric:<path>` to inject a domain checklist into the reviewer prompt. The reviewer must report `PASS` / `FAIL` / `UNVERIFIABLE` per item with evidence, in a `# Rubric Results` section. Any `FAIL` forces `VERDICT: REVISE`. This converts "does this look fine to a smart generalist" into "does this satisfy these named rules" — which is where correctness actually lives in regulated domains the model may not reliably know.
-
-**Strict mode.** Pass `strict` to bundle the safe configuration: a rubric is required (the audit stops without one), every change is floor-gated regardless of category, and autonomous fixing is disabled even if previously requested. Set it as the habit on legally-consequential repos; skip it on forgiving product repos and nothing changes.
-
-## Sibling Repo
-
-[Claude Adversarial Review - Lite](https://github.com/razaumair2203-ux/claude-adversarial-review-lite) is the mirror of this skill with the direction reversed: there Codex builds and Claude reviews (through schema-constrained JSON); here Claude Code builds and Codex reviews (through the markdown verdict contract). The two are deliberately kept in lockstep on everything the user experiences — the same policy layer (human-review floor, rubrics, strict mode, `.advreview-floor` tagging) and the same reporting procedure (finding evaluation, audit report, HTML report structure, terminal operator summary). Only the builder/reviewer direction and the transport differ.
-
-## Comparison
-
-| Approach | Good For | Main Gap |
-|---|---|---|
-| Manual second chat window | Quick informal review | Easy to forget privacy, mutation checks, strict verdicts, and sign-off. |
-| PR review bots | Team pull-request workflows | Usually runs later, often after code is already pushed. |
-| Same-agent self-review | Fast sanity check | Shares context and assumptions with the builder. |
-| Codex Adversarial Review - Lite | Local pre-trust audit of Claude Code work | Requires Codex CLI and deliberate invocation. |
-
-## Platform Notes
-
-Codex Adversarial Review - Lite runs on Windows (Git Bash), macOS, Linux, and WSL. On Windows, the skill requires Git Bash or WSL as its shell — not raw PowerShell/CMD. Codex sandboxing often relies on `bwrap`/bubblewrap, which works on most Linux setups, can work under WSL2, and fails on most native Windows and macOS setups. On platforms where `bwrap` is unavailable, the skill defaults to `danger-full-access` unless you explicitly override it. This is a practical workaround, not a claim that full access is safer.
-
-That sounds scary because it is real power. The skill compensates with:
-
-- explicit reviewer instructions not to edit project files;
-- pre/post Git mutation snapshots;
-- dirty-file content hashing;
-- approval policy controls to avoid hidden nested-review hangs;
-- human sign-off before audit-mode fixes;
-- visible warnings before external review.
-
-Read [docs/windows-sandbox.md](docs/windows-sandbox.md) before using it on sensitive repos.
-
-## Safety Model
-
-Codex Adversarial Review - Lite is a review workflow, not a security boundary.
-
-It helps catch:
-
-- hallucinated APIs and dependencies;
-- missing error handling;
-- data-loss risks;
-- scope creep;
-- unverified claims;
-- hidden assumptions in plans.
-
-It does not make generated code automatically safe. See [docs/safety-model.md](docs/safety-model.md).
-
-## Built-In Preflight Checks
-
-Before it dispatches the reviewer, the skill should stop cleanly if:
-
-- Git is missing or the current folder is not a Git worktree;
-- Codex CLI is not installed or not on `PATH`;
-- Codex health/auth/config checks fail when `codex doctor` is available;
-- the requested reviewer model is unavailable;
-- required shell tools such as `timeout`, `grep`, `tail`, `cat`, `sort`, and a SHA-256 hash tool are missing;
-- the temp directory cannot be created outside the repo;
-- sandbox settings would fail because `bwrap` is unavailable on this platform.
-
-These checks are there so a missing Codex install becomes a helpful setup message, not a confusing failed review.
-
-If a prerequisite is missing, the skill does not dispatch Codex and does not send repository content anywhere. It shows a setup-needed message with the missing tools and install guidance, then stops. It should only run an install command after explicit user approval.
-
-## Troubleshooting
-
-If the slash command does not appear:
-
-- confirm the installed folder is `~/.claude/skills/codex-adversarial-review-lite`;
-- confirm `SKILL.md` is directly inside that folder;
-- restart Claude Code;
-- invoke the exact command: `/codex-adversarial-review-lite audit`.
-
-If the skill says Codex is missing:
-
-- run `codex --version`;
-- run `codex login`;
-- run `codex doctor --summary`;
-- reopen Claude Code if installing Codex changed your `PATH`.
-
-If Windows sandboxing fails:
-
-- read [docs/windows-sandbox.md](docs/windows-sandbox.md);
-- use the default Windows behavior first;
-- only override sandbox settings if you understand your Codex CLI setup.
-
-For a fuller table, see [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## Configuration Defaults
-
-| Setting | Default |
-|---|---|
-| Reviewer backend | `codex` |
-| Reviewer model | `gpt-5.5` |
-| Reasoning | `xhigh` |
-| Sandbox (bwrap available) | `workspace-write` |
-| Sandbox (no bwrap — Windows, some macOS) | `danger-full-access` with warning |
-| Approval mode | `auto_review` |
-| Recommended mode | `audit` |
-| Rubric | none (optional `rubric:<path>`) |
-| Strict mode | off (optional `strict`, requires a rubric) |
-| Human-review floor | on for floor categories (auth, billing, migrations, secrets, regulatory) |
-| Builder | Claude Code |
-
-Future versions can generalize to other builders/reviewers. The first release is deliberately focused on Claude Code plus Codex CLI.
-
-## Audit Reports
-
-Audit mode presents a conversation report and can produce a self-contained HTML report after user consent. The report step happens before any code changes. Short audits can be approved finding-by-finding; longer audits can use a batch decision table. The installed canonical template is [skills/codex-adversarial-review-lite/references/sample-audit-report.html](skills/codex-adversarial-review-lite/references/sample-audit-report.html), and the public preview copy is [examples/sample-audit-report.html](examples/sample-audit-report.html). Reports should include:
-
-![Audit report anatomy](docs/assets/audit-report-anatomy.svg)
-
-- metadata;
-- status badge;
-- severity and decision badges;
-- executive summary;
-- finding cards;
-- builder assessment;
-- verification evidence;
-- glossary;
-- update log.
-
-The SVG is a visual reading guide. The HTML file is the concrete sample artifact users can open, inspect, adapt, and compare against their own generated report.
-
-## Research Background
-
-The workflow is inspired by research and practice around external feedback, self-refinement, multi-agent debate, and agentic code review. The short version: asking the same model to critique itself can help, but self-correction without external feedback is unreliable, and independent review creates a different failure surface. The builder still needs to verify findings.
-
-Useful anchors:
-
-- Self-Refine shows that feedback-and-refinement can improve outputs, even when a single model plays multiple roles: https://arxiv.org/abs/2303.17651
-- Huang et al. report that LLMs can struggle to self-correct reasoning without external feedback, sometimes degrading answers: https://arxiv.org/abs/2310.01798
-- Multi-agent debate research shows that multiple model instances can improve factuality and reasoning in some settings: https://arxiv.org/abs/2305.14325
-- A 2026 vision paper on agentic code review argues for specialized agents plus human-controlled quality gates: https://arxiv.org/abs/2605.17548
-- A 2025 code-review evaluation found that LLM review reliability depends heavily on context and task type, which supports passing focused test expectations instead of asking for generic review: https://arxiv.org/abs/2505.20206
-
-See [docs/why-independent-review.md](docs/why-independent-review.md).
-
-## Examples
-
-- [examples/sample-review.md](examples/sample-review.md)
-- [examples/sample-audit-report.html](examples/sample-audit-report.html)
-
-## Roadmap
-
-- More reviewer backends.
-- Optional multi-model jury mode.
-- Smoke-test harness for sample repos.
-
-## Sharing The Repo
-
-Suggested GitHub topics and launch copy are in [docs/release-checklist.md](docs/release-checklist.md) and [docs/launch.md](docs/launch.md).
-
-## License
-
-MIT
+Offline CI covers Windows, Linux, and macOS on Python 3.11/3.13. Live provider
+checks remain opt-in and use no repository content. Keep shared transport,
+schema, prompt, and regression fixes mirrored in the sibling repository.
+
+MIT license.
+
+If you previously installed `/adversarial-reviewer-lite`, use the current
+`/codex-adversarial-review-lite` command. The installer reports the legacy copy
+and leaves it intact; archive it when you are ready.

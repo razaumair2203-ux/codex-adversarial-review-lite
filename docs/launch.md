@@ -1,3 +1,5 @@
+> Historical launch draft for protocol 1. Runtime/setup claims below are superseded by [the current README](../README.md).
+
 # Launch Copy
 
 ## Short Post
