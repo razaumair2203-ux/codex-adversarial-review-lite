@@ -42,6 +42,10 @@ The supported transport is [references/runner.md](references/runner.md).
    `scripts/...` relative to the user's repository. Python 3.11+ and Git are
    prerequisites. Run the executable directly from the main agent. Do not
    delegate CLI transport to a subagent or substitute a simulated self-review.
+   Use the host's read/search tools to locate files; shell directory listings
+   are unnecessary. A denied optional listing does not prove the Python runner
+   is denied. Attempt the required, authorized runner command and report its
+   actual outcome; respect any denial of that required operation.
 2. For `selftest`, run the documented installed command and stop after reporting
    checks. Offline success is setup evidence, not proof that a reviewer ran.
    Report `ready_for_audit` only after the live probe actually passes.

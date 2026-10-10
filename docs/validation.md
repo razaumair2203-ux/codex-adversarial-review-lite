@@ -12,6 +12,10 @@ terminal Codex CLI 0.144.1. The IDE bundles a different, newer Codex CLI.
 
 ## After repair
 
+- 30/30 behavioral tests passed locally in each repository. The six-job GitHub
+  matrix also passed on Windows/Linux/macOS with Python 3.11 and 3.13. A path
+  spelling assertion was corrected to compare file identity on macOS symlinked
+  temp roots and Windows short-path aliases; the runner already resolved them.
 - Shared behavioral regression suite covers both providers: launch failure,
   stale approval replacement, outer error responses, strict schema/evidence,
   incomplete rubrics, timeouts with child-process cancellation, native paths,
@@ -22,6 +26,12 @@ terminal Codex CLI 0.144.1. The IDE bundles a different, newer Codex CLI.
 - Installed offline checks passed for both local skills under the normal user
   account. Sandbox credentials differed from that account; running a probe in
   a different execution context is not evidence the real account lacks auth.
+- Both final installed copies passed synthetic live reviews using their normal
+  defaults. A fresh Claude session invoked `/codex-adversarial-review-lite selftest`
+  and actually executed the Python helper under narrowly allowed Bash permissions;
+  all six offline checks passed with no permission denials. The earlier host probe
+  exposed premature stopping after an optional `ls` denial; instructions now
+  distinguish that from a denial of the required runner command.
 - Independent Claude implementation review: approved, zero material findings,
   six rubric PASS results, repository snapshot unchanged. This verifies a
   supplied bundle, not general correctness or every deployment environment.
@@ -42,8 +52,8 @@ precedence over unrelated startup/websocket/cache warnings.
 
 ## Limits
 
-Local validation is Windows evidence. Cross-platform CI is configured for
-Windows/Linux/macOS with Python 3.11 and 3.13; inspect its results separately.
+Live provider and host validation is Windows evidence. Cross-platform offline
+CI passed on Windows/Linux/macOS with Python 3.11 and 3.13.
 Live smoke tests do not establish real-world defect recall or false-positive
 rates. For model upgrades, compare verified defect detection, unsupported
 findings, latency, cost, and rubric coverage on representative tasks; do not
