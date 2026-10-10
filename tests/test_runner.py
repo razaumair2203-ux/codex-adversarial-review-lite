@@ -349,7 +349,10 @@ class ContractTests(unittest.TestCase):
             entry.parent.mkdir(parents=True)
             entry.write_text("// synthetic")
             with patch.object(runner.shutil, "which", return_value="node.exe"):
-                self.assertEqual(runner.command_for_path(shim, "codex"), ["node.exe", str(entry)])
+                command = runner.command_for_path(shim, "codex")
+                self.assertEqual(command[0], "node.exe")
+                self.assertEqual(len(command), 2)
+                self.assertTrue(Path(command[1]).samefile(entry))
 
 
 class InstallationTests(unittest.TestCase):

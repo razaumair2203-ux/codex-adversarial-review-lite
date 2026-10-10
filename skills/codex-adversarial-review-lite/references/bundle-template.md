@@ -29,4 +29,3 @@ Optional. When the user passed `rubric:<path>`, include the domain checklist ver
 
 ## Known constraints and uncertainties
 List platform, compatibility, dependency, migration, and unresolved assumptions.
-
