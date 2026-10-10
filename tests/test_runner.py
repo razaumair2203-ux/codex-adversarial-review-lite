@@ -173,7 +173,7 @@ class TransportTests(unittest.TestCase):
 
     def test_timeout_reports_heartbeat_and_stops_child_tree(self):
         process, result = self.run_cli(mode="sleep", extra=("--timeout", "0.7", "--heartbeat", "0.2"))
-        self.assertEqual(result["result"], "timeout")
+        self.assertEqual(result["result"], "timeout", process.stderr)
         self.assertEqual(process.returncode, 3)
         self.assertIn("Reviewer running", process.stderr)
         time.sleep(2.2)
