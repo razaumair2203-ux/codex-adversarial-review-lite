@@ -10,9 +10,12 @@ Resolve `<skill>` to the absolute directory of the SKILL.md you just read.
 
 ```text
 python "<skill>/scripts/review_runner.py" prepare
+python "<skill>/scripts/review_runner.py" preferences --backend codex
+python "<skill>/scripts/review_runner.py" inspect --backend codex
 python "<skill>/scripts/review_runner.py" selftest --backend codex
-python "<skill>/scripts/review_runner.py" selftest --backend codex --live-probe
-python "<skill>/scripts/review_runner.py" run --backend codex --bundle "<bundle.md>" --result "<result.json>" --repo "<git-root>" --scope "<relative-file>"
+python "<skill>/scripts/review_runner.py" selftest --backend codex --live-probe --model "<chosen-model>" --reasoning "<chosen-effort>" --verify-selection
+python "<skill>/scripts/review_runner.py" run --backend codex --model "<chosen-model>" --reasoning "<chosen-effort>" --verify-selection --bundle "<bundle.md>" --result "<result.json>" --repo "<git-root>" --scope "<relative-file>"
+python "<skill>/scripts/review_runner.py" configure --backend codex --model "<chosen-model>" --reasoning "<chosen-effort>"
 ```
 
 The runner freezes stdin in a private OS temp directory and launches the CLI
@@ -24,23 +27,78 @@ is constructed. Another user's credentials/extension directories are never scann
 
 ## Model and capability selection
 
-Default: omit model override, letting the authenticated CLI/account choose.
-Codex custom `model_provider` definitions and their configured model are
-preserved while user/project automation config is isolated. For standard accounts,
-do not import a newer builder/IDE model choice into an older CLI. `--model configured`
-explicitly selects the top-level Codex model; `--model cli-default` omits it. Profiles are not
-implicitly selected. Explicit model: `--model MODEL` or `CODEX_REVIEW_MODEL`.
-Aliases supplied by the provider are fine; reproducible runs may pin a full ID.
-When the CLI does not expose the resolved default model, report `cli_default`
-rather than inventing an ID. Log requested model and CLI version.
+First resolve the user's choice. Precedence is explicit arguments, reviewer-only
+environment variables (`CODEX_REVIEW_MODEL`, `CODEX_REVIEW_EFFORT`), then the
+saved local preference. With no complete model/effort pair, `run` returns
+`selection_needed`, exit 2, before generation. The host asks whether the user knows
+which model/effort are available, wants advertised choices, or wants automatic
+strongest selection. It waits for an answer. Existing session choices count;
+announce saved settings and honor overrides without asking the same question again.
 
-Optional `--fallback-model MODEL` / `CODEX_REVIEW_FALLBACK_MODEL` is tried only
-after a model-availability error, with at most two attempts total. Explicit
-fallback use is announced and recorded. Timeout/auth/quota/permission/network/
-configuration/output errors stop; no weaker model or permissions are substituted.
-No redundant model-health generation precedes every full review. `--reasoning`
-is optional; use the model's default unless latency/quality needs justify an
-override. Unsupported flags/settings produce a visible error; update the CLI.
+`preferences` reads only the saved pair. `inspect` checks compatible CLI/authentication
+and returns its model/effort catalog without generation, with
+`availability_verified: false`. A catalog is not an entitlement check.
+`configure` saves the user's requested pair separately from provider configuration:
+Claude-review preferences are in `$CODEX_HOME/adversarial-review/claude.json`
+(default `~/.codex`); Codex-review preferences are in
+`$CLAUDE_CONFIG_DIR/adversarial-review/codex.json` (default `~/.claude`). Installers
+preserve these outside the skill directory. Do not commit personal preference files.
+
+The hosted skill always passes `--verify-selection` for its chosen pair. A chosen
+explicit model and effort are synthetically verified without replacement.
+Only when the user chooses `--model highest --reasoning highest` does the automatic
+strongest policy below apply. The runner selects the newest compatible CLI already installed in the usual
+current-user locations. An explicit `--cli`, `CODEX_REVIEW_CLI`, or `CODEX_BIN`
+takes precedence, including an intentionally older binary. It does not install
+or update programs or change account-wide preferences.
+
+Codex queries its stdio app-server `model/list`, including pagination. Claude
+queries the streaming initialization response's model picker. These are metadata
+requests, without a user message or project bundle. Only model fields are saved;
+the initialization account object is never persisted. Capability families rank
+Mythos > Fable/Astra (or GPT Pro) > Opus > Sol > Sonnet/Codex > Terra > Luna/Haiku/Mini/Nano; within
+a family, newer advertised versions win. Provider flagship descriptions help
+rank unknown families and break ties. Numeric version alone is not a strength
+ranking across families. Hidden, disabled, and unavailable entries are excluded.
+This explicit policy uses no fixed release IDs. It is a policy, not a provider
+strength score or proof that every future model will be ranked correctly.
+Unrankable new families or unknown effort scales stop visibly and require an
+explicit choice or a policy update; they never silently select an older default.
+
+Effort is selected from the chosen model's advertised levels in ascending order
+`none < minimal < low < medium < high < xhigh < max < ultra`; omitted/unsupported
+levels are not invented. Codex may advertise `ultra` as including provider task
+delegation; selecting it does not grant additional runner permissions. Claude's
+`ultracode` workflow setting is not an effort level and is never substituted.
+
+A catalog is not an entitlement check. Before the full review, a complete synthetic
+add-one example verifies the model/effort, authentication, and output contract.
+Only an explicit model-unavailable error advances to the next ranked model;
+only an explicit unsupported-effort error advances to the next advertised effort
+on that model. Up to six probes total, each capped at 180 seconds and Claude's
+$0.75 API budget where supported. Authentication, quota, network, permissions,
+configuration, timeout, or invalid output stops immediately. Selection adds
+latency and account usage; these limits are per probe, not an aggregate spend cap.
+Claude's reported resolved model must stay consistent between probe and review.
+Codex's requested ID and successful inference are recorded; resolved session
+model metadata is recorded when its CLI provides it.
+
+Choice: `--model MODEL` / `CODEX_REVIEW_MODEL`, or `--model configured` for the
+top-level Codex config model. An explicit model is never replaced automatically.
+Both model and effort must be selected or saved. `--reasoning highest` explicitly
+opts into the highest effort for the chosen model. The direct runner can omit
+`--verify-selection` with an explicit pair to preserve legacy single-call behavior;
+the hosted skill always verifies it. To choose both CLI defaults use
+`--model cli-default --reasoning cli-default`. Profiles are not
+implicitly selected. Custom Codex providers retain endpoint/configuration, but
+require an explicit model/configured and effort/cli-default because a bundled
+OpenAI catalog cannot establish a gateway's strongest model.
+
+`--fallback-model MODEL` / `CODEX_REVIEW_FALLBACK_MODEL` applies only in the direct
+legacy runner, without `--verify-selection`, with explicit model AND effort settings,
+after a model-availability error, with at most two
+full-review attempts. Automatic selection cannot combine with that fallback.
+Errors and requested overrides are always recorded; permissions never widen.
 
 ## Isolation
 
@@ -69,6 +127,16 @@ inspect local processes before retrying. Change limits with `--timeout`, `--hear
 `--max-budget-usd`. Codex has no equivalent dollar ceiling; timeout bounds duration,
 not spend. Use your account's usage limits as needed.
 
+The host's foreground wait must cover discovery, metadata, selection probes,
+and all full-review attempts together. In the tested Claude host, a 600-second
+Bash foreground limit matched the runner's full-review deadline alone, leaving
+no time for verification. Use the host's tracked background task/session facility
+when its foreground limit is insufficient. Preserve the task handle and result
+path, await task completion with available task-output tools or bounded result
+polls, and read the terminal JSON and exit status. A background launch is pending;
+the host must stay on the audit until completion or a reported failure. A host
+kill can leave running; it is never a verified review.
+
 Every handled runtime failure writes a terminal envelope, prints a diagnostic,
 and returns nonzero. If the requested result is unwritable, the envelope is
 printed to stdout and exit 6 names the persistence failure. Invalid arguments
@@ -78,16 +146,19 @@ repo is rejected without writing there, and the error envelope is printed.
 
 Envelope fields: `protocol_version`, `result`, `verdict`, `review_quality`,
 `review`, `errors`, `session_id`, `backend`, `reviewer_model`, `model_source`,
-`cli_path`, `cli_version`, `attempts`, `diagnostics_dir`, `mutation_check`, and
+`reported_model` (when the CLI supplies it), `reviewer_effort`, `selection`, `cli_command`, `cli_path`, `cli_version`, `attempts`, `diagnostics_dir`, `mutation_check`, and
 `elapsed_seconds`. Fields not reached during failed preflight may be absent.
 
-`result`: `success`, `running`, `setup_needed`, `input_error`, `launch_failure`,
+`result`: `success`, `running`, `selection_needed`, `setup_needed`, `input_error`, `launch_failure`,
 `timeout`, `cancelled`, `invalid_output`, `not_verified`, `mutation_detected`.
 Only `success` plus `valid` plus an unchanged requested snapshot can be accepted.
 Exit codes: 0 valid review; 2 setup/input; 3 launch/timeout; 4 output/degraded;
 5 mutation/check failure; 6 persistence failure; 130 interruption.
 
-Each attempt has separate stdout/stderr/final output. Logs and frozen bundle
+`selection` records chosen model/effort, source, synthetic availability verification,
+resolved model when reported, and every selection probe. A failed selection retains
+`selection_phase`, model-only catalog, and individual probe results in diagnostics.
+Each full-review attempt has separate stdout/stderr/final output. Logs and frozen bundle
 remain in `diagnostics_dir` on success and failure; they may contain selected
 source and must not be posted publicly. Console/envelope errors redact common
 token formats. Raw logs are local evidence, not guaranteed sanitized.

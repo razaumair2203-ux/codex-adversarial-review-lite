@@ -1,5 +1,14 @@
 # Reliability upgrade: evidence and decisions
 
+2026-10-11 follow-up: ask for the user's model/effort pair when none is supplied
+or saved. Offer catalog discovery and optional strongest/highest selection. Verify
+the selected pair before sending project content. Local preferences survive
+reinstalls without entering the public repository. Automatic mode queries the
+newest compatible installed CLI and ranks advertised capability families/versions.
+This replaces the account-default policy in the historical plan below. Unknown capability order
+fails visibly; custom gateways require explicit settings. See the executable
+policy and validation evidence for limits and actual checks.
+
 Inspected on 2026-10-10 against the repository and locally installed skills,
 Claude Code 2.1.96, and Codex CLI 0.144.1.
 

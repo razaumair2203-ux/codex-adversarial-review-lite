@@ -30,7 +30,7 @@ def default_root():
 
 def install(root):
     source = ROOT / "skills" / NAME
-    for file in ("SKILL.md", "scripts/review_runner.py", "references/review-schema.json", "references/reviewer-prompt.md"):
+    for file in ("SKILL.md", "scripts/review_runner.py", "scripts/model_selection.py", "references/review-schema.json", "references/reviewer-prompt.md"):
         if not (source / file).is_file():
             raise ValueError("Incomplete checkout: " + file)
     json.loads((source / "references/review-schema.json").read_text(encoding="utf-8"))
@@ -46,6 +46,7 @@ def install(root):
     try:
         shutil.copytree(source, stage, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         compile((stage / "scripts/review_runner.py").read_text(encoding="utf-8"), "review_runner.py", "exec")
+        compile((stage / "scripts/model_selection.py").read_text(encoding="utf-8"), "model_selection.py", "exec")
         if destination.exists():
             backups = root.parent / "skill-backups"
             backups.mkdir(parents=True, exist_ok=True)

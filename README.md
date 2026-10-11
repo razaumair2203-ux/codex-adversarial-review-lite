@@ -62,18 +62,43 @@ Use the skill on your next turn; reopen Claude Code if it does not appear.
 ```
 
 `selftest` checks local discovery, authentication, temp paths, and the installed
-parser. It does **not** prove the remote reviewer ran. `live-probe` makes one
-synthetic review call without project content; account usage may apply. Its
+parser. It does **not** prove the remote reviewer ran. `live-probe` verifies
+model/effort selection and a synthetic review without project content; account usage applies. Its
 result is the evidence that live dispatch works.
 
-Model selection defaults to this CLI's account default. There is no fixed
-model/version chain. You can specify `reviewer:<model-or-provider-alias>`,
-`fallback:<model>`, and `reasoning:<level>` deliberately. A fallback is used only
-for an availability error and is reported. Codex custom providers keep their
-configured endpoint/model; `reviewer:configured` explicitly selects the top-level
-Codex model and `reviewer:cli-default` skips that model setting. No account-wide
-model preference is changed. Newer models alone do not establish better review
-quality; measure defect detection, unsupported findings, latency, and cost.
+Both skills let **you choose the reviewer model and effort**. If you have not
+supplied a choice or saved one, the host asks whether you know the available
+model/effort, want to see the CLI's advertised choices, or want automatic strongest
+model/highest effort selection. No model generation or review dispatch precedes
+that choice. A saved preference is announced and can be overridden on any invocation.
+
+After your choice, the skill checks its runtime/CLI/authentication dependencies
+and verifies model/effort access with a small synthetic request before sending
+your review bundle. It never replaces your explicit choice automatically or
+changes account-wide preferences. Selection and effort are reported with saved
+diagnostics. See the [selection
+policy](skills/codex-adversarial-review-lite/references/runner.md#model-and-capability-selection)
+for ranking, uncertainty, probe limits, and provider differences.
+
+To opt into automatic strongest selection, use `reviewer:highest reasoning:highest`.
+It discovers the newest compatible already-installed CLI, queries the catalog,
+and applies the documented capability-ranking policy without fixed release IDs.
+Highest effort adds latency and account usage. To use CLI defaults, specify
+`reviewer:cli-default reasoning:cli-default`. You can pin
+`reviewer:<model-or-provider-alias> reasoning:<level>` for your chosen pair.
+The skill verifies that pair and stops if it is unavailable. The direct legacy
+runner retains deliberate availability fallback; hosted verified selection does
+not silently fall back to a different explicit model.
+Custom Codex providers keep their endpoint but require `reviewer:configured`
+(or an explicit model) plus effort or `reasoning:cli-default`; their strongest
+model cannot be inferred from an OpenAI catalog. Neither newer models nor higher
+effort prove better reviews; measure defect detection, unsupported findings, latency,
+and cost. Unknown automatic-ranking capabilities fail visibly.
+
+Ask the host to remember your pair, or run the installed helper's `configure`
+command from the [runner guide](skills/codex-adversarial-review-lite/references/runner.md).
+Preferences are reviewer-only local files outside the install folder, survive
+reinstallation, and are never included in this public repository.
 
 ## What you should see
 

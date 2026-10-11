@@ -15,10 +15,22 @@ reporting an audit. If a tool yields a process/session ID, the builder resumes i
 On failure, keep the result and diagnostic path and follow
 [troubleshooting](troubleshooting.md). No fake approval or self-review substitute.
 
-Models can be selected with `reviewer:<model>`. Otherwise use the CLI's own
-account default. For Codex, `reviewer:configured` deliberately uses its top-level
-config model; `reviewer:cli-default` omits the override. This matters when an IDE
-and terminal CLI have different model catalogs. Do not guess model availability.
+If you have not supplied or saved a model/effort pair, the skill asks whether you
+know your available reviewer, want to see advertised choices, or want automatic
+strongest selection. It waits for your answer before generation. You can choose
+both settings for this invocation; existing preferences are announced and can
+be overridden. Read `selection`, `reviewer_model`, `reviewer_effort`, and `cli_version`.
+
+Choose `reviewer:<model> reasoning:<effort>`; the skill checks dependencies and
+verifies the exact pair synthetically. Choose `reviewer:highest reasoning:highest`
+for automatic strongest/highest. Choose CLI
+defaults with `reviewer:cli-default reasoning:cli-default`. For custom Codex
+providers, use `reviewer:configured` (or a model ID) plus explicit effort or
+`reasoning:cli-default`. A public catalog cannot establish a gateway's strongest
+model. Ask to save your pair or use the installed `configure` helper; local
+preferences survive reinstalling and never go into the public repository.
+Explicit CLI overrides remain authoritative. Verification/automatic selection adds
+latency and account usage; see the executable policy for bounds and uncertainty.
 
 `strict rubric:<path>` chooses human sign-off after findings for every change.
 Without strict, existing explicit autonomous-fix authorization is respected.

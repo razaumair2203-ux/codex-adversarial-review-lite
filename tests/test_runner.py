@@ -33,6 +33,19 @@ if '--help' in args:
     print('--output-schema --output-last-message --sandbox --ignore-user-config --ephemeral --json-schema --tools --setting-sources --strict-mcp-config --effort'); sys.exit(0)
 if args == ['auth', 'status'] or args == ['login', 'status']:
     print('{"loggedIn": true}'); sys.exit(0)
+if 'app-server' in args or '--input-format' in args:
+    if os.environ.get('MOCK_MODE') == 'catalog-sleep':
+        time.sleep(10)
+    models = json.loads(os.environ.get('MOCK_MODELS', '[]'))
+    for line in sys.stdin:
+        message = json.loads(line)
+        if message.get('type') == 'control_request':
+            print(json.dumps({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': message['request_id'], 'response': {'models': models, 'account': {'email': 'do-not-persist@example.invalid'}}}}), flush=True)
+        elif message.get('method') == 'initialize':
+            print(json.dumps({'id': message['id'], 'result': {}}), flush=True)
+        elif message.get('method') == 'model/list':
+            print(json.dumps({'id': message['id'], 'result': {'data': models, 'nextCursor': None}}), flush=True)
+    sys.exit(0)
 request = sys.stdin.read()
 mode = os.environ.get('MOCK_MODE', 'success')
 model = args[args.index('--model') + 1] if '--model' in args else 'default'
@@ -45,6 +58,8 @@ if mode == 'network':
     print('Connection to model unavailable: socket network failure', file=sys.stderr); sys.exit(7)
 if mode == 'auth':
     print('Not authenticated; API key invalid token=secret-for-test', file=sys.stderr); sys.exit(7)
+if mode == 'effort' and ('ultra' in args or 'model_reasoning_effort="ultra"' in args):
+    print('Reasoning effort ultra is not supported', file=sys.stderr); sys.exit(7)
 if mode == 'sleep':
     subprocess.Popen([sys.executable, '-c', 'import pathlib,time;time.sleep(2);pathlib.Path(' + repr(os.environ['MOCK_CHILD_MARKER']) + ').write_text("survived")'])
     time.sleep(10)
@@ -60,6 +75,8 @@ else:
     outer = {'subtype': 'success', 'is_error': False, 'structured_output': review, 'session_id': 'synthetic-session'}
     if mode == 'outer-error':
         outer['is_error'] = True; outer['subtype'] = 'error_max_turns'
+    if os.environ.get('MOCK_CHANGED_MODEL'):
+        outer['modelUsage'] = {'probe-model' if 'No repository content' in request else 'substituted-model': {}}
     print(json.dumps(outer))
 '''
 
@@ -76,8 +93,9 @@ class TransportTests(unittest.TestCase):
         self.record = self.directory / "invocations.jsonl"
         self.env = dict(os.environ, MOCK_REVIEW=json.dumps(GOOD), MOCK_RECORD=str(self.record),
                         MOCK_MODE="success", CODEX_HOME=str(self.directory / "codex home"),
+                        CLAUDE_CONFIG_DIR=str(self.directory / "claude home"),
                         CLAUDECODE="parent-session", MOCK_CHILD_MARKER=str(self.directory / "child-survived"))
-        for key in ("CLAUDE_REVIEW_MODEL", "CODEX_REVIEW_MODEL", "CLAUDE_REVIEW_FALLBACK_MODEL", "CODEX_REVIEW_FALLBACK_MODEL"):
+        for key in ("CLAUDE_REVIEW_MODEL", "CODEX_REVIEW_MODEL", "CLAUDE_REVIEW_EFFORT", "CODEX_REVIEW_EFFORT", "CLAUDE_REVIEW_FALLBACK_MODEL", "CODEX_REVIEW_FALLBACK_MODEL"):
             self.env.pop(key, None)
 
     def tearDown(self):
@@ -87,7 +105,7 @@ class TransportTests(unittest.TestCase):
         env = dict(self.env, MOCK_MODE=mode)
         process = subprocess.run([sys.executable, str(script), "run", "--backend", backend,
                                   "--cli", str(self.mock), "--bundle", str(self.bundle), "--result", str(self.result),
-                                  "--timeout", "15", *extra], env=env, capture_output=True, text=True,
+                                  "--timeout", "15", "--model", "cli-default", "--reasoning", "cli-default", *extra], env=env, capture_output=True, text=True,
                                  encoding="utf-8", timeout=25)
         result = json.loads(self.result.read_text(encoding="utf-8")) if self.result.exists() else json.loads(process.stdout)
         return process, result
@@ -212,7 +230,7 @@ class TransportTests(unittest.TestCase):
         config_dir = Path(self.env["CODEX_HOME"])
         config_dir.mkdir()
         (config_dir / "config.toml").write_text('model = "configured-model"\nmodel_provider = "custom"\n[model_providers.custom]\nname = "Local gateway"\nbase_url = "https://example.invalid/v1"\nwire_api = "responses"\n', encoding="utf-8")
-        process, result = self.run_cli("codex")
+        process, result = self.run_cli("codex", extra=("--model", "configured"))
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(result["model_source"], "codex_config")
         self.assertIn('model_provider="custom"', self.calls()[0]["argv"])
@@ -296,7 +314,7 @@ class TransportTests(unittest.TestCase):
 
     def test_selftest_live_probe_is_single_json_and_no_source(self):
         process = subprocess.run([sys.executable, str(SCRIPT), "selftest", "--backend", "claude",
-                                  "--cli", str(self.mock), "--live-probe"], env=self.env,
+                                  "--cli", str(self.mock), "--model", "cli-default", "--reasoning", "cli-default", "--live-probe"], env=self.env,
                                  capture_output=True, text=True, encoding="utf-8", timeout=20)
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertTrue(json.loads(process.stdout)["ready_for_audit"])
