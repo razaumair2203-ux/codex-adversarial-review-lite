@@ -2,6 +2,7 @@
 """Self-contained, observable CLI review transport. Python 3.11+, no packages."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,17 @@ import uuid
 
 SKILL = Path(__file__).resolve().parent.parent
 PROTOCOL_VERSION = 2
+_selection_spec = importlib.util.spec_from_file_location("review_model_selection", SKILL / "scripts/model_selection.py")
+selection = importlib.util.module_from_spec(_selection_spec)
+_selection_spec.loader.exec_module(selection)
+
+SYNTHETIC_BUNDLE = (
+    "# Synthetic model/effort availability probe\nNo repository content. Complete review scope.\n"
+    "## Request and acceptance criteria\nReview add_one for integer inputs: return n + 1. "
+    "No other features are required.\n## synthetic_example.py\n"
+    "```python\ndef add_one(n):\n    return n + 1\n```\n"
+    "## Verification evidence\nInspection: add_one(1) = 2; add_one(-1) = 0. No external tests run.\n"
+)
 
 
 class ReviewError(Exception):
@@ -132,22 +144,44 @@ def command_for_path(path, backend):
     return [str(path)]
 
 
-def discover(backend, override=None):
+def discover(backend, override=None, prefer_latest=False):
     explicit = override or os.environ.get(backend.upper() + "_REVIEW_CLI") or \
         os.environ.get(backend.upper() + "_BIN")
     if explicit:
         return command_for_path(shutil.which(explicit) or explicit, backend)
     found = shutil.which(backend)
-    if found:
+    if found and not prefer_latest:
         return command_for_path(found, backend)
     home = Path.home()
     candidates = [home / ".local/bin" / (backend + (".exe" if os.name == "nt" else ""))]
+    if found:
+        candidates.insert(0, Path(found))
     if os.name == "nt":
         candidates += [home / "AppData/Roaming/npm" / (backend + ".cmd")]
         extensions = home / ".vscode/extensions"
         glob = "openai.chatgpt-*/bin/windows-x86_64/codex.exe" if backend == "codex" else \
             "anthropic.claude-code-*/resources/native-binary/claude.exe"
         candidates += sorted(extensions.glob(glob), key=lambda p: p.stat().st_mtime, reverse=True)
+    if prefer_latest:
+        verified, seen = [], set()
+        for candidate in candidates[:12]:
+            if not candidate.is_file():
+                continue
+            try:
+                command = command_for_path(candidate, backend)
+                identity = tuple(command)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                version, _ = preflight(backend, command, tempfile.gettempdir())
+                number = re.search(r"(\d+)\.(\d+)\.(\d+)", version)
+                if number:
+                    verified.append((tuple(map(int, number.groups())), command))
+            except (ReviewError, OSError, subprocess.SubprocessError):
+                continue
+        if verified:
+            return max(verified, key=lambda item: item[0])[1]
+        raise ReviewError("setup_needed", "No installed compatible reviewer CLI passed version/help checks. Set an explicit --cli path; no CLI was installed or changed.")
     for candidate in candidates:
         if candidate.is_file():
             return command_for_path(candidate, backend)
@@ -180,6 +214,25 @@ def codex_configuration():
             return tomllib.load(stream)
     except (OSError, tomllib.TOMLDecodeError) as error:
         raise ReviewError("setup_needed", "Cannot read Codex config: " + safe_text(error)) from error
+
+
+def preference_path(backend):
+    if backend == "claude":
+        home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    else:
+        home = Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+    return home / "adversarial-review" / (backend + ".json")
+
+
+def preferences(backend):
+    path = preference_path(backend)
+    if not path.is_file():
+        return {}
+    value = read_json(path)
+    if not isinstance(value, dict) or not isinstance(value.get("model"), str) or not value["model"].strip() or \
+            value.get("reasoning") not in (*selection.EFFORTS, "highest", "cli-default"):
+        raise ReviewError("setup_needed", "Invalid reviewer preference file: " + str(path))
+    return value
 
 
 def validate(value, schema, location="review"):
@@ -287,6 +340,7 @@ def failure_kind(text):
         ("permission", r"permission denied|sandbox|trusted directory|access denied"),
         ("configuration", r"unknown option|unexpected argument|unrecognized argument|invalid config|not a valid.*schema"),
         ("network", r"connection|network|socket|timed? out|dns|proxy|TLS|SSL"),
+        ("effort_unavailable", r"(?:effort|reasoning).{0,100}(?:unsupported|not supported|invalid|not available|unknown variant)|(?:unsupported|invalid|unknown variant).{0,100}(?:effort|reasoning)"),
         ("model_unavailable", r"(?:model.{0,80}(?:not found|not available|not supported|unavailable|unsupported|does not exist|no access))|(?:(?:unknown|invalid|unsupported|unavailable|no access|do not have access).{0,50}model)"),
     ]
     for kind, pattern in patterns:
@@ -320,8 +374,8 @@ def build_command(backend, cli, help_text, schema_path, prompt, cwd, final, mode
         if model:
             command += ["--model", model]
         if args.reasoning:
-            if "--effort" not in help_text or args.reasoning not in ("low", "medium", "high", "max"):
-                raise ReviewError("input_error", "This Claude CLI/effort setting is unsupported; omit reasoning or use low|medium|high|max.")
+            if "--effort" not in help_text or args.reasoning not in selection.EFFORTS:
+                raise ReviewError("input_error", "This Claude CLI/effort setting is unsupported; use its advertised effort levels.")
             command += ["--effort", args.reasoning]
         return command
     command = cli + ["exec", "--ignore-user-config", "--sandbox", "read-only", "-c", "approval_policy=never",
@@ -356,12 +410,63 @@ def toml_value(value):
     raise ReviewError("setup_needed", "Unsupported value in Codex provider config.")
 
 
+def select_model(args, cli, work, primary, config, result_path, envelope):
+    custom = config.get("model_provider", "openai") != "openai"
+    if custom and (primary in ("highest", "cli-default") or args.reasoning == "highest"):
+        raise ReviewError("setup_needed", "A custom provider is configured. Its CLI catalog may describe OpenAI models rather than that gateway. Specify --model configured (or an explicit ID) AND --reasoning <effort>|cli-default; automatic strongest selection cannot verify the gateway's capability order.")
+    announce("Reading reviewer model/effort catalog; no review bundle is sent during selection.")
+    models = [] if custom else selection.catalog(args.backend, cli, work, stop_process)
+    write_json(work / "model-catalog.json", models)
+    requested_model = None if primary == "highest" else primary
+    if primary == "cli-default":
+        default = next((row for row in models if row.get("isDefault") or row.get("value") == "default"), None)
+        if not default:
+            raise ReviewError("setup_needed", "Catalog does not identify its default; specify a model or --model highest.")
+        requested_model = selection.model_id(default)
+    requested_effort = None if args.reasoning in (None, "highest") else args.reasoning
+    if requested_effort == "cli-default":
+        requested_effort = "cli-default"  # An explicit opt-out is never lowered by selection.
+    probe_number = 0
+    def verify(model, effort):
+        nonlocal probe_number
+        probe_number += 1
+        envelope["selection_phase"] = {"probe": probe_number, "model": model, "effort": effort}
+        write_json(result_path, envelope)
+        announce(f"Verifying advertised model {model}, effort {effort or 'unsupported by model'} with synthetic content only.")
+        probe_bundle = work / "selection-probe.md"
+        probe_bundle.write_text(SYNTHETIC_BUNDLE, encoding="utf-8")
+        probe = argparse.Namespace(**vars(args))
+        probe.bundle, probe.result = str(probe_bundle), str(work / f"selection-probe-{probe_number}.json")
+        probe.repo, probe.scope, probe.rubric_items = None, [], None
+        probe.model, probe.reasoning = model, effort or "cli-default"
+        probe.fallback_model, probe._selection_probe, probe._cli_command = None, True, cli
+        probe.timeout = min(args.timeout, 180)
+        probe.max_budget_usd = min(args.max_budget_usd, 0.75)
+        code = run_review(probe, emit=False)
+        result = read_json(probe.result)
+        attempts = result.get("attempts", [])
+        resolved = result.get("reported_model") if code == 0 else None
+        return {"available": code == 0, "resolved_model": resolved,
+                "failure_kind": attempts[-1].get("failure_kind") if attempts else result["result"],
+                "error": result.get("errors"), "result_path": probe.result}
+    try:
+        chosen = selection.choose(models, args.backend, verify, requested_model, requested_effort)
+    except selection.SelectionError as error:
+        raise ReviewError("setup_needed", str(error)) from error
+    envelope["selection"] = chosen
+    envelope.pop("selection_phase", None)
+    envelope["model_source"] = chosen["source"]
+    args.reasoning = None if chosen["effort"] == "cli-default" else chosen["effort"]
+    announce(f"Selected {chosen['model']}, effort {chosen['effort'] or 'none advertised'}; synthetic availability verified.")
+    return chosen["model"]
+
+
 def run_review(args, emit=True):
     result_path = Path(args.result).expanduser().resolve()
     started = time.monotonic()
     envelope = dict(protocol_version=PROTOCOL_VERSION, result="running", verdict=None, review_quality="unknown",
                     review=None, errors=None, session_id=None, reviewer_model=None, model_source=None,
-                    backend=args.backend, attempts=[], diagnostics_dir=None,
+                    backend=args.backend, attempts=[], diagnostics_dir=None, reviewer_effort=None, selection=None,
                     mutation_check="not_checked" if args.repo else "not_requested")
     work = None
     code = 3
@@ -385,7 +490,7 @@ def run_review(args, emit=True):
         bundle = bundle_path.read_text(encoding="utf-8-sig")
         if not bundle.strip():
             raise ReviewError("input_error", "Bundle is missing or empty.")
-        if args.reasoning and args.reasoning not in ("low", "medium", "high", "xhigh", "max"):
+        if args.reasoning and args.reasoning not in (*selection.EFFORTS, "highest", "cli-default"):
             raise ReviewError("input_error", "Unknown reasoning level.")
         rubric_items = read_json(args.rubric_items) if args.rubric_items else []
         if not isinstance(rubric_items, list) or any(not isinstance(item, str) or not item.strip() for item in rubric_items) or \
@@ -399,30 +504,41 @@ def run_review(args, emit=True):
         # Freeze the actual bytes sent, not a later reread of a mutable user file.
         frozen = work / "bundle.md"
         frozen.write_text((prompt + "\n\n" if args.backend == "codex" else "") + bundle, encoding="utf-8")
-        cli = discover(args.backend, args.cli)
+        saved = {} if args.model and args.reasoning else preferences(args.backend)
+        env_model = os.environ.get(args.backend.upper() + "_REVIEW_MODEL")
+        primary = args.model or env_model or saved.get("model")
+        args.reasoning = args.reasoning or os.environ.get(args.backend.upper() + "_REVIEW_EFFORT") or saved.get("reasoning")
+        if not primary or not args.reasoning:
+            raise ReviewError("selection_needed", "Choose reviewer model AND effort before dispatch. Ask whether the user knows their available model; use inspect to show the CLI catalog when unsure. Choose --model MODEL --reasoning LEVEL, or explicitly choose highest/highest or cli-default/cli-default. A saved configure preference also supplies the choice.")
+        if args.reasoning not in (*selection.EFFORTS, "highest", "cli-default"):
+            raise ReviewError("input_error", "Unknown requested/saved reasoning level.")
+        selecting = not getattr(args, "_selection_probe", False) and (primary == "highest" or args.reasoning == "highest" or
+                    getattr(args, "verify_selection", False) or (bool(saved) and not args.model and not env_model))
+        cli = getattr(args, "_cli_command", None) or discover(args.backend, args.cli, prefer_latest=selecting)
         version, help_text = preflight(args.backend, cli, work)
         envelope["cli_path"], envelope["cli_version"] = cli[0], version
+        envelope["cli_command"] = cli
         config = codex_configuration() if args.backend == "codex" else {}
-        env_model = os.environ.get(args.backend.upper() + "_REVIEW_MODEL")
-        primary = args.model or env_model
-        # Builder/IDE config may use a newer catalog than the installed CLI.
-        if not primary and config.get("model_provider", "openai") != "openai":
-            primary = config.get("model")
+        fallback = None if getattr(args, "_selection_probe", False) else args.fallback_model or os.environ.get(args.backend.upper() + "_REVIEW_FALLBACK_MODEL")
+        if selecting and fallback:
+            raise ReviewError("input_error", "Automatic selection already verifies availability candidates. To use a deliberate full-review fallback, specify an explicit model and --reasoning <level>|cli-default.")
         if primary == "configured":
             primary = config.get("model")
             if not primary:
                 raise ReviewError("setup_needed", "No top-level Codex model is configured; use cli-default or an explicit model.")
             envelope["model_source"] = "codex_config"
-        elif primary == "cli-default":
+        elif primary == "cli-default" and not selecting:
             primary = None
             envelope["model_source"] = "cli_default"
-        elif args.model or env_model:
+        elif primary != "highest":
             envelope["model_source"] = "explicit"
-        elif primary:
-            envelope["model_source"] = "codex_config"
         else:
-            envelope["model_source"] = "cli_default"
-        fallback = args.fallback_model or os.environ.get(args.backend.upper() + "_REVIEW_FALLBACK_MODEL")
+            envelope["model_source"] = "pending_catalog"
+        if selecting:
+            primary = select_model(args, cli, work, primary, config, result_path, envelope)
+        elif args.reasoning == "cli-default":
+            args.reasoning = None
+        envelope["reviewer_effort"] = args.reasoning or "cli_default"
         models = [primary]
         if fallback and fallback != primary:
             models.append(fallback)
@@ -433,14 +549,14 @@ def run_review(args, emit=True):
         # At most two attempts total. No automatic repeated full-bundle call or stale output reuse.
         for number, model in enumerate(models, 1):
             envelope["reviewer_model"] = model or "cli_default"
-            attempt = {"number": number, "model": model or "cli_default", "exit_code": None}
+            attempt = {"number": number, "model": model or "cli_default", "effort": args.reasoning or "cli_default", "exit_code": None}
             envelope["attempts"].append(attempt)
             write_json(result_path, envelope)
             final = work / f"attempt-{number}-final.json"
             out_path = work / f"attempt-{number}-stdout.log"
             err_path = work / f"attempt-{number}-stderr.log"
             command = build_command(args.backend, cli, help_text, schema_path, prompt, work, final, model, args, config)
-            announce(f"Launching reviewer attempt {number}, model {model or 'CLI/account default'} ({version}).")
+            announce(f"Launching reviewer attempt {number}, model {model or 'CLI/account default'}, effort {args.reasoning or 'CLI default'} ({version}).")
             with frozen.open("rb") as input_file, out_path.open("wb") as out_file, err_path.open("wb") as err_file:
                 attempt["exit_code"], _, _ = execute(command, work, args.timeout, input_file, out_file, err_file, args.heartbeat)
             out_text = out_path.read_text(encoding="utf-8", errors="replace")
@@ -452,7 +568,7 @@ def run_review(args, emit=True):
                 if kind == "model_unavailable" and number < len(models):
                     announce("Requested model unavailable; trying the explicitly configured fallback.")
                     continue
-                status = "setup_needed" if kind in ("authentication", "configuration", "model_unavailable") else "launch_failure"
+                status = "setup_needed" if kind in ("authentication", "configuration", "model_unavailable", "effort_unavailable") else "launch_failure"
                 raise ReviewError(status, f"Reviewer exited {attempt['exit_code']} ({kind}). " + safe_text(diagnostic))
             if args.backend == "codex" and (not final.is_file() or not final.stat().st_size):
                 raise ReviewError("invalid_output", "Codex exited without a nonempty final-message file.")
@@ -466,6 +582,10 @@ def run_review(args, emit=True):
                 envelope["models_used"] = models_used
                 if len(models_used) == 1:
                     envelope["reviewer_model"] = models_used[0]
+                    envelope["reported_model"] = models_used[0]
+                verified = (envelope.get("selection") or {}).get("verified_model")
+                if verified and models_used != [verified]:
+                    raise ReviewError("not_verified", "Claude's reported model changed after availability verification; refusing an unverified model substitution.")
             # Record the model reported by Codex's session metadata when available.
             if args.backend == "codex":
                 for line in out_text.splitlines():
@@ -475,17 +595,23 @@ def run_review(args, emit=True):
                             envelope["session_id"] = event.get("thread_id")
                         if event.get("type") == "session_meta" and event.get("payload", {}).get("model"):
                             envelope["reviewer_model"] = event["payload"]["model"]
+                            envelope["reported_model"] = event["payload"]["model"]
                     except (ValueError, AttributeError):
                         pass
+                verified = (envelope.get("selection") or {}).get("verified_model")
+                if verified and envelope.get("reported_model") != verified:
+                    raise ReviewError("not_verified", "Codex's reported model changed after availability verification; refusing an unverified model substitution.")
             code = 0 if quality == "valid" else 4
             break
     except KeyboardInterrupt:
         envelope.update(result="cancelled", errors="Review interrupted; no verified verdict.", verdict=None)
         code = 130
-    except ReviewError as error:
+    except (ReviewError, selection.SelectionError) as error:
+        if isinstance(error, selection.SelectionError):
+            error = ReviewError("setup_needed", str(error))
         envelope.update(result=error.status, errors=safe_text(error), verdict=None,
-                        review_quality="degraded_environmental" if error.status != "invalid_output" else "unknown")
-        code = {"input_error": 2, "setup_needed": 2, "invalid_output": 4, "timeout": 3}.get(error.status, 3)
+                        review_quality="unknown" if error.status in ("invalid_output", "selection_needed") else "degraded_environmental")
+        code = {"input_error": 2, "setup_needed": 2, "selection_needed": 2, "invalid_output": 4, "timeout": 3}.get(error.status, 3)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         envelope.update(result="launch_failure", errors=safe_text(error), verdict=None,
                         review_quality="degraded_environmental")
@@ -516,6 +642,33 @@ def run_review(args, emit=True):
     return code
 
 
+def inspect_models(args):
+    result = {"result": "running", "backend": args.backend, "generation_requested": False}
+    directory = Path(tempfile.mkdtemp(prefix="advreview-catalog-"))
+    result["diagnostics_dir"] = str(directory)
+    try:
+        cli = discover(args.backend, args.cli, prefer_latest=True)
+        version, _ = preflight(args.backend, cli, directory)
+        auth_args = ["auth", "status"] if args.backend == "claude" else ["login", "status"]
+        code, _, _ = execute(cli + auth_args, directory, 20)
+        if code:
+            raise ReviewError("setup_needed", "Reviewer authentication failed; run the provider's login command.")
+        config = codex_configuration() if args.backend == "codex" else {}
+        if config.get("model_provider", "openai") != "openai":
+            raise ReviewError("setup_needed", "A custom provider requires its own advertised model/effort list; the public CLI catalog cannot establish gateway availability.")
+        models = selection.catalog(args.backend, cli, directory, stop_process)
+        write_json(directory / "model-catalog.json", models)
+        result.update(result="success", cli_version=version, cli_command=cli, models=models,
+                      saved_preference=preferences(args.backend), availability_verified=False,
+                      note="Catalog choices are advertised capabilities; access is verified only after the user chooses a model/effort.")
+    except (ReviewError, selection.SelectionError, OSError, ValueError, subprocess.SubprocessError) as error:
+        result.update(result="setup_needed", errors=safe_text(error))
+    if args.result:
+        write_json(args.result, result)
+    print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    return 0 if result["result"] == "success" else 2
+
+
 def selftest(args):
     checks = []
     with tempfile.TemporaryDirectory(prefix="advreview-selftest-") as directory:
@@ -535,7 +688,8 @@ def selftest(args):
             if not shutil.which("git"):
                 raise ReviewError("setup_needed", "Install Git for real review mutation checks.")
             checks.append({"name": "git", "status": "pass", "detail": shutil.which("git")})
-            cli = discover(args.backend, args.cli)
+            prefer_latest = (args.model or os.environ.get(args.backend.upper() + "_REVIEW_MODEL") or "highest") == "highest" or args.reasoning in (None, "highest")
+            cli = discover(args.backend, args.cli, prefer_latest=prefer_latest)
             version, _ = preflight(args.backend, cli, cwd)
             checks.append({"name": "reviewer_cli", "status": "pass", "detail": version + " at " + cli[0]})
             auth_args = ["auth", "status"] if args.backend == "claude" else ["login", "status"]
@@ -555,6 +709,7 @@ def selftest(args):
                               "## Verification evidence\nBuilder inspection: add_one(1) = 2; add_one(-1) = 0. "
                               "No external tests run. Review the complete function supplied above.\n", encoding="utf-8")
             live_args = argparse.Namespace(**vars(args))
+            live_args._cli_command = cli
             live_args.bundle, live_args.result = str(bundle), str(cwd / "live result.json")
             live_args.repo, live_args.scope, live_args.rubric_items = None, [], None
             live_code = run_review(live_args, emit=False)
@@ -565,6 +720,9 @@ def selftest(args):
         report = {"result": "pass" if okay else "fail", "checks": checks,
                   "live_probe": "passed" if live_result and live_result["result"] == "success" else "not_verified",
                   "ready_for_audit": bool(okay and live_result and live_result["result"] == "success")}
+        if live_result:
+            for key in ("selection", "reviewer_model", "reviewer_effort", "cli_version", "cli_command"):
+                report[key] = live_result.get(key)
         if args.result:
             write_json(args.result, report)
         print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
@@ -583,9 +741,10 @@ def main():
         sub.add_argument("--backend", required=True, choices=("claude", "codex"))
         sub.add_argument("--result", required=operation == "run")
         sub.add_argument("--cli", help="Absolute CLI path; overrides PATH discovery")
-        sub.add_argument("--model", help="Model ID/alias, cli-default, or configured (Codex); default is this CLI/account")
+        sub.add_argument("--model", help="User choice or saved preference: model ID, highest, cli-default, configured (Codex)")
         sub.add_argument("--fallback-model", help="One explicit model fallback, only for availability errors")
-        sub.add_argument("--reasoning", help="Optional effort, supported by selected CLI/model")
+        sub.add_argument("--reasoning", help="User choice or saved preference: effort level, highest, cli-default")
+        sub.add_argument("--verify-selection", action="store_true", help="Verify the chosen explicit model/effort with synthetic content before sending the review bundle")
         sub.add_argument("--timeout", type=float, default=600)
         sub.add_argument("--heartbeat", type=float, default=15)
         sub.add_argument("--max-turns", type=int, default=8)
@@ -598,11 +757,33 @@ def main():
         else:
             sub.add_argument("--live-probe", action="store_true", help="One synthetic remote call; no repository content")
     prepare = commands.add_parser("prepare", help="Allocate native temp paths for the builder's Write tool")
+    inspect = commands.add_parser("inspect", help="List advertised model/effort choices without generation")
+    inspect.add_argument("--backend", required=True, choices=("claude", "codex"))
+    inspect.add_argument("--cli")
+    inspect.add_argument("--result")
+    configure = commands.add_parser("configure", help="Save a reviewer-only local model/effort preference; does not change provider settings")
+    configure.add_argument("--backend", required=True, choices=("claude", "codex"))
+    configure.add_argument("--model", required=True)
+    configure.add_argument("--reasoning", required=True, choices=(*selection.EFFORTS, "highest", "cli-default"))
+    saved = commands.add_parser("preferences", help="Read reviewer-only local preference without CLI/auth/network access")
+    saved.add_argument("--backend", required=True, choices=("claude", "codex"))
     args = parser.parse_args()
     if args.operation == "prepare":
         directory = Path(tempfile.mkdtemp(prefix="advreview-input-"))
         print(json.dumps({"directory": str(directory), "bundle_path": str(directory / "bundle.md"),
                           "result_path": str(directory / "result.json"), "rubric_items_path": str(directory / "rubric-items.json")}))
+        return 0
+    if args.operation == "inspect":
+        return inspect_models(args)
+    if args.operation == "preferences":
+        print(json.dumps({"path": str(preference_path(args.backend)), "saved_preference": preferences(args.backend),
+                          "generation_requested": False}))
+        return 0
+    if args.operation == "configure":
+        path = preference_path(args.backend)
+        write_json(path, {"model": args.model, "reasoning": args.reasoning})
+        print(json.dumps({"result": "saved", "path": str(path), "model": args.model, "reasoning": args.reasoning,
+                          "availability_verified": False}))
         return 0
     return run_review(args) if args.operation == "run" else selftest(args)
 

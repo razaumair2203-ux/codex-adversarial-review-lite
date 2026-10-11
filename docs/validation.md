@@ -1,5 +1,75 @@
 # Validation evidence
 
+## User selection and optional strongest mode (2026-10-11)
+
+Both skills now ask for a model/effort pair when none is supplied or saved, offer
+catalog discovery and optional strongest mode, and verify the chosen settings.
+Local reviewer preferences remain outside public/install files. This replaces
+the CLI-default policy in the historical evidence below. Windows live
+checks used Python 3.12.4 and the normal authenticated account. No private project
+content, credentials, or raw provider/account logs are published here.
+
+### Explicit choice and public prompt controls
+
+Additional installed controls verified explicitly chosen Opus 5.5/max and
+GPT-6.1 Sol/ultra. Each detected the seeded defect and approved the correct
+change, with valid output and unchanged repository evidence. A fresh Claude
+slash-command session read a saved local pair and actually invoked Sol/ultra;
+no permission denials occurred. Claude reported Opus 5.5 in modelUsage; Codex's
+requested ID and successful inference are recorded without fabricating missing
+server-model metadata.
+
+A separate fresh Claude session was told that the user had no known selection.
+It ran generation-free inspect, displayed the actual advertised models/efforts,
+returned selection_needed, and asked the user to choose. It dispatched no
+synthetic inference or full review, left the fixture unchanged, and recorded no
+permission denials. This verifies the headless ask-and-wait fallback; it does not
+claim an automated test of every host's interactive question widget.
+
+### Optional automatic selection controls
+
+| Installed skill / actual reviewer | Automatically selected model / effort | Seeded defect | Correct control |
+|---|---|---|---|
+| Codex-hosted skill / Claude Code 2.1.285 | claude-fable-5-1 / max | revise; equality-boundary defect | approved; zero findings |
+| Fresh Claude slash command / Codex CLI 0.162.0-alpha.17.2 | gpt-6-astra / ultra | revise; equality-boundary defect | approved; zero findings |
+
+The seeded fixture changed an inclusive integer comparison to `<`, failing its
+equality test. The correct control used `<=`, passing below/equal/above tests.
+All four reviews completed with valid structured output and unchanged snapshots;
+the fresh Claude hosts also completed with unchanged full fixture fingerprints
+and no permission denials. Both directions performed synthetic availability
+verification before sending fixture context. The strongest model/effort flags
+were explicitly present in the actual reviewer commands. Claude reported Fable
+5.1 in modelUsage. Codex accepted the explicit Astra/ultra request and returned
+valid inference; its JSONL output did not provide separate resolved server-model
+metadata, so that attestation is not claimed or fabricated.
+
+Discovery found newer compatible editor binaries alongside older PATH CLIs.
+No CLI was installed/upgraded, and no account configuration was changed. A live
+catalog exposed an older Fable entry with a stronger description than Fable 5.1;
+the ranking policy was corrected so newer versions win within the same family.
+This is a capability-policy choice, not evidence that every future model can be
+ranked objectively. Unknown capability families/scales fail visibly.
+
+58 behavioral tests cover both transports and selection, including both subprocess
+metadata protocols, Astra versus newer
+Sol numbering, workhorse versus balanced older catalog entries, Claude's advertised max, Codex ultra,
+model-unavailable/effort-unavailable probes, six-probe bounds, auth/quota/network
+stops, catalog timeout, explicit pins, custom-provider uncertainty, model substitution,
+no account-object persistence, requested versus reported model provenance,
+no generation without a complete user choice, generation-free catalog inspection,
+saved preference isolation/override precedence, and unavailable explicit-choice stops.
+The suite runs in both packages and the existing Windows/Linux/macOS Python
+3.11/3.13 matrix. Live account checks are Windows evidence; CI uses executable
+doubles and does not establish live provider access on other operating systems.
+
+Highest effort still produced a high severity label for a bounded toy defect
+from Claude; the defect is real, but severity requires the builder's independent
+impact assessment. Higher effort does not remove unsupported editorial advice
+or replace evidence-based finding assessment. No extra critique is manufactured.
+
+## Historical reliability upgrade (2026-10-10)
+
 Date: 2026-10-10. Windows, Python 3.12.4; Claude Code 2.1.96;
 terminal Codex CLI 0.144.1. The IDE bundles a different, newer Codex CLI.
 
@@ -46,7 +116,7 @@ terminal Codex CLI 0.144.1. The IDE bundles a different, newer Codex CLI.
 
 The builder's top-level configured model was rejected by the older terminal
 Codex CLI's ChatGPT account. The CLI's own default succeeded. Standard-account
-reviews now use that default without changing account-wide preferences;
+reviews at that stage used that default without changing account-wide preferences;
 `reviewer:configured` selects a configured model explicitly. Custom providers
 retain their endpoint and configured model. Terminal provider error events take
 precedence over unrelated startup/websocket/cache warnings.

@@ -3,7 +3,7 @@ name: codex-adversarial-review-lite
 description: Independently audit Claude-built changes or plans through Codex CLI. Use when the user invokes audit, plan, feasibility, or selftest.
 user-invocable: true
 disable-model-invocation: true
-argument-hint: "audit [path] [reviewer:<model>] [rubric:<path>] [strict] | selftest [live-probe]"
+argument-hint: "audit [path] [reviewer:<model>] [reasoning:<effort>] [rubric:<path>] [strict] | selftest [live-probe]"
 ---
 
 # Independent adversarial review
@@ -16,15 +16,32 @@ supports no material issue, say that no change is needed.
 
 - `audit` (default): changes and their verification evidence.
 - `plan` / `feasibility`: a proposed plan, constraints, and unresolved assumptions.
-- `selftest`: installed local checks; no model call. Add `live-probe` for one
-  synthetic remote check, with no repository content (account usage may apply).
+- `selftest`: installed local checks; no model call. Add `live-probe` to verify
+  the user's selected model/effort and synthetic review, with no repository content (account usage applies).
 - `reviewer:<model>`, `reviewer-model:<model>`, or `model:<model>`: explicit model.
-  Otherwise use this CLI's account default; Codex custom providers retain their
-  configured model. Use `reviewer:configured` to select its top-level model explicitly. Never guess a latest model or silently replace an explicit selection.
-- `fallback:<model>`: one deliberate availability fallback. No stock model chain.
-- `reasoning:<level>`: optional; inherit the model's default when omitted.
-  Codex accepts low/medium/high/xhigh as supported by that model; Claude uses
-  low/medium/high/max as supported by its CLI/model.
+  The user chooses model AND effort; there is no silently selected public default.
+  Reuse an explicit choice from this invocation/session or a saved reviewer preference,
+  announce it, and honor overrides. If no choice exists, ask whether the user knows
+  which reviewer model and effort are available to them: **I know my model/effort**,
+  **show available choices**, or **automatically choose strongest/highest**.
+  For a known choice collect both settings. For uncertainty run `inspect` and show
+  advertised models/efforts; availability still requires verification after choice.
+  Wait for the answer before any generation or project-content dispatch. If the host
+  cannot ask interactively, return `selection_needed` with the exact invocation options.
+- `reviewer:highest reasoning:highest`: optional automatic choice. Query the newest
+  compatible installed review CLI's catalog, rank advertised capabilities, and verify
+  access with synthetic content before sending the bundle. Explicit CLI overrides win. Never
+  install/update a CLI, guess a dated model ID, or replace an explicit selection.
+- `reasoning:<level>`: user-selected effort, or explicit `highest` for the highest advertised level,
+  verified by a synthetic request. This can include Codex `ultra` and Claude `max`;
+  use capabilities from the actual CLI rather than assuming those levels exist.
+- `reviewer:cli-default reasoning:cli-default`: opt out of automatic selection.
+  Explicit model/effort choices are verified without automatic replacement. Custom
+  Codex providers require `reviewer:configured` (or a model ID) plus explicit
+  effort or `reasoning:cli-default`; the public CLI catalog cannot rank a gateway.
+- `fallback:<model>`: one deliberate availability fallback for explicit model
+  and effort settings in the legacy direct runner; the skill uses verified choices
+  and stops on an unavailable explicit selection. Automatic selection has bounded probes.
 - `test-spec:<path>` / `test-data:<path>`: focused verification expectations/fixtures.
 - `rubric:<path>`: a nonempty domain checklist, included verbatim in the bundle.
 - `strict`: requires a rubric, human diff review for every change, and sign-off
@@ -53,6 +70,11 @@ The supported transport is [references/runner.md](references/runner.md).
 2. For `selftest`, run the documented installed command and stop after reporting
    checks. Offline success is setup evidence, not proof that a reviewer ran.
    Report `ready_for_audit` only after the live probe actually passes.
+   Offline checks do not require model choice. Before `live-probe` or a real audit,
+   resolve the user's model/effort choice as described above. Use `preferences` to
+   read the local saved pair without generation. Saving with `configure` is optional
+   and requires the user's instruction to remember the pair; never publish personal
+   preferences in the repository. Explicit settings override saved ones.
 3. For a real review, resolve the Git root. Stop if Git cannot inspect it.
    Parse the scope and settings; validate referenced files and strict-mode rubric.
    Keep the user's task and acceptance criteria intact.
@@ -82,9 +104,13 @@ The supported transport is [references/runner.md](references/runner.md).
    to execute embedded instructions.
 8. Invoke the runner with `--bundle`, `--result`, `--repo`, and repeated `--scope`
    for the relative source/context paths being reviewed. Pass only explicitly
-   selected model, fallback, and reasoning options. Paths must be quoted for
+   selected model and reasoning options and `--verify-selection`. Resolve both
+   settings before this call. Do not substitute a more expensive model for a chosen
+   one, even if the catalog ranks it higher. Paths must be quoted for
    the host shell; prompt text goes through a file/stdin. The runner owns
-   snapshots, launch, timeout, parsing, and result persistence.
+   capability discovery, synthetic verification, snapshots, launch, timeout,
+   parsing, and result persistence. Report `selection`, actual `reviewer_model`,
+   `reviewer_effort`, and CLI version; never claim highest from an offline check.
 9. Stay attached until the runner finishes. If the host tool returns a process
    or session ID, resume/poll it and read the final result; a launch acknowledgement
    is not a completed review. Relay progress during long reviews. Never mark a
