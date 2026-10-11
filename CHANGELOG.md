@@ -20,6 +20,9 @@
 - Explicit-choice controls also verified Opus 5.5/max and GPT-6.1 Sol/ultra.
   A fresh Claude choice-flow session listed advertised options, asked for a pair,
   returned selection_needed, and dispatched no reviewer generation.
+- Account for selection overhead in host wait budgets. Use tracked task/session
+  completion for long reviews; an observed broad-review timeout remained a
+  non-approval with retained diagnostics and verified process-tree cancellation.
 
 # Protocol 2 reliability upgrade (2026-10-10)
 

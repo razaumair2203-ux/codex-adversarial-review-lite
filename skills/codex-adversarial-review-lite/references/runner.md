@@ -127,6 +127,16 @@ inspect local processes before retrying. Change limits with `--timeout`, `--hear
 `--max-budget-usd`. Codex has no equivalent dollar ceiling; timeout bounds duration,
 not spend. Use your account's usage limits as needed.
 
+The host's foreground wait must cover discovery, metadata, selection probes,
+and all full-review attempts together. In the tested Claude host, a 600-second
+Bash foreground limit matched the runner's full-review deadline alone, leaving
+no time for verification. Use the host's tracked background task/session facility
+when its foreground limit is insufficient. Preserve the task handle and result
+path, await task completion with available task-output tools or bounded result
+polls, and read the terminal JSON and exit status. A background launch is pending;
+the host must stay on the audit until completion or a reported failure. A host
+kill can leave running; it is never a verified review.
+
 Every handled runtime failure writes a terminal envelope, prints a diagnostic,
 and returns nonzero. If the requested result is unwritable, the envelope is
 printed to stdout and exit 6 names the persistence failure. Invalid arguments

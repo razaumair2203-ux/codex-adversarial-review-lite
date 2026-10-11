@@ -68,6 +68,26 @@ from Claude; the defect is real, but severity requires the builder's independent
 impact assessment. Higher effort does not remove unsupported editorial advice
 or replace evidence-based finding assessment. No extra critique is manufactured.
 
+A separate broad Opus 5.5/max implementation audit reached the 600-second
+deadline with no response in stdout/stderr. Its result was timeout with no
+verdict, verified process-tree cancellation under the normal account, and an
+unchanged repository snapshot. The provider-side cause is unknown. This proves
+observable failure handling; it does not establish a completed review of that
+large workload. Successful fixture controls are not generalized to every scope.
+The tested Claude foreground call also had a 600-second total limit, while the
+runner's 600-second review-attempt budget excluded selection overhead.
+Instructions now require a tracked task/session
+when the host's foreground limit cannot cover the complete command, and require
+completion and terminal-result checks after background launch.
+
+A fresh Claude slash-command control exercised that path: Bash dispatched the
+installed runner with run_in_background enabled, TaskOutput waited for its
+exit-zero completion, and the host then read the terminal result.json. The
+GPT-6.1 Sol/ultra correct-change review was success/valid/approved with no
+findings, no permission denials, and unchanged fixture hashes and Git state.
+This verifies tracked completion; it does not claim a successful 600-second
+implementation audit or establish behavior for every host/task duration.
+
 ## Historical reliability upgrade (2026-10-10)
 
 Date: 2026-10-10. Windows, Python 3.12.4; Claude Code 2.1.96;

@@ -115,6 +115,13 @@ The supported transport is [references/runner.md](references/runner.md).
    or session ID, resume/poll it and read the final result; a launch acknowledgement
    is not a completed review. Relay progress during long reviews. Never mark a
    missing result, `running` state, CLI error, cancellation, or timeout approved.
+   Include CLI discovery, catalog, synthetic probes, and full review attempts in
+   the host's wait budget. `--timeout` bounds each review attempt. When a foreground
+   tool limit cannot cover the whole command, use the host's tracked background
+   task/session facility and keep its handle and result path. Await completion
+   with the available task-output tool, or poll the result using bounded waits;
+   then read the terminal JSON and task exit status. Do not end after background
+   launch or repeatedly dispatch new reviewers while the first is running.
 10. Require exit code 0, `result: success`, `review_quality: valid`, and
     `mutation_check: unchanged` for a completed real review. A different result
     is failed or not verified; show its diagnostic and saved log directory.
