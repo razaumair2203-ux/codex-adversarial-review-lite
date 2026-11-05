@@ -1,3 +1,28 @@
+# Central claims are reviewed for strength, not only consistency (2026-11-05)
+
+- Gap found in real use: every review round checked whether claims matched the
+  evidence the builder supplied, so a claim that agreed with its evidence but
+  could not survive an obvious expert objection passed review after review.
+  The builder writes the acceptance criteria, and closure passes narrowed to
+  earlier findings, so nobody re-tested the central claims.
+- Reviewer prompt: test the work against its objective. For each central claim,
+  ask whether the evidence could have contradicted it (or holds by construction
+  or by the choice of metric), what the strongest expert objection is and whether
+  it is answered, and whether the claim's strength matches the evidence. Report
+  only material failures, as the new `claim-strength` category; no manufactured
+  objections and no new work for peripheral claims.
+- Bundle template: a "Central claims or promised outcomes" section, and an
+  acceptance criterion that central claims survive their strongest objection.
+- Skill workflow: frame the review against the user's goal; before a milestone is
+  called complete, at least one valid pass must have had the central claims in
+  scope; an approval that excluded them is reported as saying nothing about them.
+- Two contract regressions (60 tests). Live checks with GPT-6.1 Sol/high on
+  synthetic cases outside the original domain: an unsupported performance claim
+  and a confounded metric claim were flagged as `claim-strength` with valid
+  reviews (the previous prompt flagged the confound only in reviews it marked
+  not verified); a well-supported control drew no invented objection, and one
+  run raised a legitimate clustered-sampling point.
+
 # User-chosen, verified reviewer model and effort (2026-10-11)
 
 - Ask for model/effort choice when the invocation/session or local preference

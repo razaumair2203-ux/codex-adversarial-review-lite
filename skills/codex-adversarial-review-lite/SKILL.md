@@ -92,11 +92,20 @@ The supported transport is [references/runner.md](references/runner.md).
 6. Run `prepare` and use the returned native absolute temp paths. Use the host's
    file-writing tool to build a focused bundle from
    [references/bundle-template.md](references/bundle-template.md): request,
-   acceptance criteria, exclusions, diff/plan, path-labelled context, actual test
-   evidence, known unknowns. Do not use shell interpolation for prompt content.
-   Exclude credentials, ignored files, unrelated data, and environment dumps.
-   Include all context required for the checks; a larger context window is not
-   a reason to send the whole repository.
+   acceptance criteria, central claims, exclusions, diff/plan, path-labelled
+   context, actual test evidence, known unknowns. Do not use shell interpolation
+   for prompt content. Exclude credentials, ignored files, unrelated data, and
+   environment dumps. Include all context required for the checks; a larger
+   context window is not a reason to send the whole repository.
+   The builder frames the review, so frame it against the user's goal, not only
+   the builder's own checklist. Quote the work's central claims or promised
+   outcomes, with their evidence, and keep "the central claims survive their
+   strongest objection" among the criteria whenever the work claims or promises
+   something. A bundle that only asks whether claims match evidence lets a weak
+   claim pass every round. Follow-up passes that check earlier findings may be
+   narrow, but before a milestone is called complete, at least one valid pass
+   must have had the central claims in scope; re-include them whenever they
+   changed.
 7. If there is a rubric, assign stable identifiers (`R1`, `R2`, ...), retain its
    exact text beside those identifiers, and write a JSON array of the identifiers
    to `rubric_items_path`. Pass it as `--rubric-items`. Coverage is then checked
@@ -144,8 +153,9 @@ facts, inference, uncertainty, and author choices. Reject unsupported criticism.
 Present the report before edits: reviewer claim, concrete impact, builder decision,
 verification, and remaining risk. Rubric failures force `revise`; missing/skipped
 coverage is not verified. `approved` means no supported material issue in the
-supplied scope, not proof of correctness. Do not add extra review rounds just to
-produce findings.
+supplied scope, not proof of correctness; when the bundle left out the central
+claims, it says nothing about their strength, so report that limit. Do not add
+extra review rounds just to produce findings.
 
 For an approved high-consequence change (or any strict review), present the
 changed files/diff and require human review before marking the audit complete.

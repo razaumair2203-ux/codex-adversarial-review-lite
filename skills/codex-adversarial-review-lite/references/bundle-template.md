@@ -7,7 +7,16 @@
 State the original intent without reinterpretation.
 
 ## Acceptance criteria
-List observable outcomes.
+List observable outcomes. Derive them from the user's goal, not only from what
+the builder chose to check. When the work makes claims or promises outcomes,
+include one criterion that its central claims survive their strongest expert
+objection; "the claims match the evidence" alone is not sufficient.
+
+## Central claims or promised outcomes
+Quote, verbatim, the headline claims, guarantees, or key assumptions of the work
+(for code: the behavior it promises; for analysis or writing: its main
+conclusions; for a plan: the assumption it rests on). Supply the evidence for
+each, not a rebuttal of objections; the reviewer forms objections independently.
 
 ## Explicit exclusions
 List what must remain out of scope.

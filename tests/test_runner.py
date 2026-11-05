@@ -353,6 +353,26 @@ class ContractTests(unittest.TestCase):
         result = self.parse(dict(GOOD, verdict="revise", review_quality="degraded_content"))
         self.assertEqual(result[1], "degraded_content")
 
+    def test_claim_strength_is_a_valid_finding_category(self):
+        sample = dict(GOOD, verdict="revise", findings=[dict(FINDING, category="claim-strength")])
+        self.assertEqual(self.parse(sample)[1], "valid")
+
+    def test_review_contract_tests_central_claims_not_only_consistency(self):
+        prompt = (SKILL / "references/reviewer-prompt.md").read_text(encoding="utf-8")
+        for phrase in ("strongest objection", "claim-strength", "necessary, not sufficient",
+                       "construction, by definition", "manufacture objections"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, prompt)
+        schema = runner.read_json(SKILL / "references/review-schema.json")
+        categories = schema["properties"]["findings"]["items"]["properties"]["category"]["enum"]
+        self.assertIn("claim-strength", categories)
+        template = (SKILL / "references/bundle-template.md").read_text(encoding="utf-8")
+        self.assertIn("## Central claims or promised outcomes", template)
+        self.assertIn("survive their strongest expert", template)
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("must have had the central claims in scope", skill)
+        self.assertIn("says nothing about their strength", skill)
+
     def test_terminal_provider_error_takes_priority_over_startup_warnings(self):
         events = json.dumps({"type": "turn.failed", "error": {"message": "The selected model is not supported for this account."}})
         diagnostic = runner.terminal_diagnostic("codex", events, "startup websocket warning")
